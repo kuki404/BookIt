@@ -37,10 +37,10 @@ jobs:
           dotnet-version: "10.0.x"
 
       - name: Restore
-        run: dotnet restore BookIt.sln
+        run: dotnet restore BookIt.slnx
 
       - name: Build
-        run: dotnet build BookIt.sln --no-restore --configuration Release
+        run: dotnet build BookIt.slnx --no-restore --configuration Release
 
       - name: Unit tests
         run: dotnet test tests/BookIt.UnitTests/BookIt.UnitTests.csproj --no-build --configuration Release --logger "console;verbosity=normal"

@@ -30,10 +30,10 @@ stages:
             inputs:
               version: $(dotnetVersion)
 
-          - script: dotnet restore BookIt.sln
+          - script: dotnet restore BookIt.slnx
             displayName: "dotnet restore"
 
-          - script: dotnet build BookIt.sln --no-restore --configuration $(buildConfiguration)
+          - script: dotnet build BookIt.slnx --no-restore --configuration $(buildConfiguration)
             displayName: "dotnet build"
 
           - script: dotnet test tests/BookIt.UnitTests/BookIt.UnitTests.csproj --no-build --configuration $(buildConfiguration) --logger trx
