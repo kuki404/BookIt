@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage;
 
 namespace BookIt.Web.Services;
@@ -16,8 +17,19 @@ public class ThemeService(ProtectedLocalStorage storage)
 
     public async Task InitializeAsync(bool systemPrefersDark)
     {
-        var stored = await storage.GetAsync<bool>(StorageKey);
-        IsDarkMode = stored.Success ? stored.Value : systemPrefersDark;
+        // Unlike ProtectedSessionStorage, this value outlives a server restart (it's browser
+        // localStorage) — so it's the more likely of the two to be encrypted under a Data
+        // Protection key the app no longer has after a redeploy with no persisted key ring. An
+        // undecryptable stored preference just means "no preference recorded", not a crash.
+        try
+        {
+            var stored = await storage.GetAsync<bool>(StorageKey);
+            IsDarkMode = stored.Success ? stored.Value : systemPrefersDark;
+        }
+        catch (CryptographicException)
+        {
+            IsDarkMode = systemPrefersDark;
+        }
     }
 
     public async Task SetAsync(bool isDarkMode)

@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using BookIt.Application.Dtos;
 using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage;
 
@@ -20,7 +21,19 @@ public class AuthSession(ProtectedSessionStorage storage)
     /// <summary>Call once per circuit, before relying on <see cref="Current"/>, to pick up a session that survived a refresh.</summary>
     public async Task RestoreAsync()
     {
-        var result = await storage.GetAsync<AuthResponse>(StorageKey);
+        ProtectedBrowserStorageResult<AuthResponse> result;
+        try
+        {
+            result = await storage.GetAsync<AuthResponse>(StorageKey);
+        }
+        catch (CryptographicException)
+        {
+            // The value was encrypted by a Data Protection key this instance no longer has (e.g.
+            // the container restarted without a persisted key ring, or keys rotated) — an
+            // undecryptable stored session is no different from no session, not a crash.
+            return;
+        }
+
         if (result is { Success: true, Value.AccessTokenExpiresAtUtc: var expiry } && expiry > DateTime.UtcNow)
         {
             Current = result.Value;
