@@ -27,3 +27,12 @@ public class BookItWebApplicationFactory : WebApplicationFactory<Program>
         Environment.SetEnvironmentVariable("RateLimiting__Auth__PermitLimit", "1000");
     }
 }
+
+/// <summary>
+/// All integration test classes share ONE factory instance via this collection instead of each
+/// declaring their own IClassFixture — xUnit runs test classes in different collections in
+/// parallel, and two hosts migrating/seeding the same shared database at the same time race each
+/// other ("database already exists", duplicate-key on the seeded demo user).
+/// </summary>
+[CollectionDefinition("Integration")]
+public class IntegrationCollection : ICollectionFixture<BookItWebApplicationFactory>;

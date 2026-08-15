@@ -7,7 +7,8 @@ using BookIt.Application.Dtos;
 namespace BookIt.IntegrationTests;
 
 /// <summary>Covers the security hardening added in the retrofit: lockout, refresh-token reuse detection, and server-enforced pagination limits.</summary>
-public class SecurityTests(BookItWebApplicationFactory factory) : IClassFixture<BookItWebApplicationFactory>
+[Collection("Integration")]
+public class SecurityTests(BookItWebApplicationFactory factory)
 {
     private readonly HttpClient client = factory.CreateClient();
 

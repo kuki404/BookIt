@@ -7,7 +7,8 @@ using BookIt.Domain.Enums;
 
 namespace BookIt.IntegrationTests;
 
-public class AuthAndBookingsTests(BookItWebApplicationFactory factory) : IClassFixture<BookItWebApplicationFactory>
+[Collection("Integration")]
+public class AuthAndBookingsTests(BookItWebApplicationFactory factory)
 {
     private readonly HttpClient client = factory.CreateClient();
 
