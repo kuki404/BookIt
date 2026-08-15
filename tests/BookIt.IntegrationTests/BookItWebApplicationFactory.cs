@@ -21,5 +21,9 @@ public class BookItWebApplicationFactory : WebApplicationFactory<Program>
     static BookItWebApplicationFactory()
     {
         Environment.SetEnvironmentVariable("Sql__Database", "BookIt_IntegrationTests");
+
+        // The "auth" rate limit (5/min) exists to slow down brute-force attempts, not to survive
+        // a test suite that legitimately registers/logs in many times in a few seconds.
+        Environment.SetEnvironmentVariable("RateLimiting__Auth__PermitLimit", "1000");
     }
 }

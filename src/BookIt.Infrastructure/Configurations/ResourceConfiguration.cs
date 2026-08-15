@@ -15,6 +15,8 @@ public class ResourceConfiguration : IEntityTypeConfiguration<Resource>
         builder.Property(r => r.Description).HasMaxLength(1000);
         builder.Property(r => r.Type).HasConversion<string>().HasMaxLength(20);
 
-        builder.HasIndex(r => r.Type);
+        // Backs the catalog listing query (ResourceService: filter IsActive, order by Name) —
+        // covers both the WHERE and the ORDER BY in one index instead of a separate sort step.
+        builder.HasIndex(r => new { r.IsActive, r.Name });
     }
 }

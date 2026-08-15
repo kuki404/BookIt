@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using BookIt.Application.Common;
 using BookIt.Application.Dtos;
 using BookIt.Domain.Enums;
 
@@ -41,9 +42,9 @@ public class AuthAndBookingsTests(BookItWebApplicationFactory factory) : IClassF
         var response = await client.GetAsync("api/resources");
 
         response.EnsureSuccessStatusCode();
-        var resources = await response.Content.ReadFromJsonAsync<List<ResourceDto>>();
+        var resources = await response.Content.ReadFromJsonAsync<PagedResult<ResourceDto>>();
         Assert.NotNull(resources);
-        Assert.NotEmpty(resources!);
+        Assert.NotEmpty(resources!.Items);
     }
 
     [Fact]
@@ -105,8 +106,8 @@ public class AuthAndBookingsTests(BookItWebApplicationFactory factory) : IClassF
 
     private async Task<Guid> GetFirstResourceIdAsync()
     {
-        var resources = await client.GetFromJsonAsync<List<ResourceDto>>("api/resources");
-        return resources!.First().Id;
+        var resources = await client.GetFromJsonAsync<PagedResult<ResourceDto>>("api/resources");
+        return resources!.Items.First().Id;
     }
 
     private async Task<Guid> CreateDedicatedResourceAsync()

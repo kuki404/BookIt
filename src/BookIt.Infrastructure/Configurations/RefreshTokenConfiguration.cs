@@ -12,7 +12,12 @@ public class RefreshTokenConfiguration : IEntityTypeConfiguration<RefreshToken>
         builder.HasKey(t => t.Id);
 
         builder.Property(t => t.TokenHash).HasMaxLength(256).IsRequired();
+        // Backs the refresh/revoke lookup (find "this exact token") — the hottest query on this table.
         builder.HasIndex(t => t.TokenHash).IsUnique();
-        builder.HasIndex(t => t.UserId);
+
+        // Backs reuse-detection's "revoke every other active token for this user" bulk update in
+        // AuthController.Refresh — filtered so the index stays small as revoked history accumulates.
+        builder.HasIndex(t => new { t.UserId, t.RevokedAtUtc })
+            .HasFilter("[RevokedAtUtc] IS NULL");
     }
 }

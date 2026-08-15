@@ -3,7 +3,10 @@
 @inject BookItApiClient Api
 @inject ISnackbar Snackbar
 
-<PageTitle>Manage resources</PageTitle>
+<PageTitle>Manage resources – BookIt</PageTitle>
+<HeadContent>
+    <meta name="robots" content="noindex" />
+</HeadContent>
 
 <MudText Typo="Typo.h4" Class="mb-4">Manage resources</MudText>
 
@@ -33,7 +36,8 @@
 
 @if (resources is null)
 {
-    <MudProgressCircular Indeterminate="true" />
+    <MudSkeleton Height="40px" Class="mb-2" />
+    <MudSkeleton Height="40px" Class="mb-2" />
 }
 else
 {
@@ -50,7 +54,7 @@ else
             <MudTd DataLabel="Type">@context.TypeDisplay</MudTd>
             <MudTd DataLabel="Capacity">@context.Capacity</MudTd>
             <MudTd DataLabel="Active">
-                <MudChip T="string" Size="Size.Small" Color="@(context.IsActive ? Color.Success : Color.Default)">
+                <MudChip T="string" Size="Size.Small" Color="@context.StatusColor">
                     @(context.IsActive ? "Active" : "Inactive")
                 </MudChip>
             </MudTd>
@@ -67,7 +71,7 @@ else
 }
 
 @code {
-    private List<ResourceDto>? resources;
+    private List<ResourceViewModel>? resources;
 
     private string newName = string.Empty;
     private ResourceType newType = ResourceType.Room;
@@ -76,7 +80,7 @@ else
 
     protected override async Task OnInitializedAsync() => await LoadAsync();
 
-    private async Task LoadAsync() => resources = await Api.GetResourcesAsync(includeInactive: true) ?? [];
+    private async Task LoadAsync() => resources = (await Api.GetResourcesAsync(includeInactive: true))?.Items.Adapt<List<ResourceViewModel>>() ?? [];
 
     private async Task AddAsync()
     {

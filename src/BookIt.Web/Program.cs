@@ -1,8 +1,13 @@
 using BookIt.Web.Components;
+using BookIt.Web.Mapping;
 using BookIt.Web.Services;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Components.Authorization;
 using MudBlazor.Services;
+
+// DTO -> Web ViewModel mappings (display-only fields like chip colors) — registered once,
+// process-wide, before any request uses `.Adapt<T>()`.
+MapsterConfig.Configure();
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -21,9 +26,13 @@ builder.Services.AddAuthorizationCore();
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddScoped<AuthSession>();
 builder.Services.AddScoped<AuthenticationStateProvider, CustomAuthStateProvider>();
+builder.Services.AddScoped<ThemeService>();
 
 var apiBaseUrl = builder.Configuration["Api:BaseUrl"] ?? "http://localhost:5098";
 builder.Services.AddHttpClient<BookItApiClient>(client => client.BaseAddress = new Uri(apiBaseUrl));
+
+// Liveness only — this app has no database of its own to check readiness against.
+builder.Services.AddHealthChecks();
 
 var app = builder.Build();
 
@@ -42,5 +51,6 @@ app.UseAntiforgery();
 app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
+app.MapHealthChecks("/health").AllowAnonymous();
 
 app.Run();

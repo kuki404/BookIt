@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using BookIt.Application.Common;
 using BookIt.Application.Dtos;
 
 namespace BookIt.Web.Services;
@@ -17,7 +18,7 @@ public class BookItApiClient(HttpClient http, AuthSession session)
             return (false, await ReadErrorAsync(response));
         }
 
-        session.Set((await response.Content.ReadFromJsonAsync<AuthResponse>())!);
+        await session.SetAsync((await response.Content.ReadFromJsonAsync<AuthResponse>())!);
         return (true, null);
     }
 
@@ -29,14 +30,14 @@ public class BookItApiClient(HttpClient http, AuthSession session)
             return (false, await ReadErrorAsync(response));
         }
 
-        session.Set((await response.Content.ReadFromJsonAsync<AuthResponse>())!);
+        await session.SetAsync((await response.Content.ReadFromJsonAsync<AuthResponse>())!);
         return (true, null);
     }
 
-    public void Logout() => session.Clear();
+    public Task LogoutAsync() => session.ClearAsync();
 
-    public Task<List<ResourceDto>?> GetResourcesAsync(bool includeInactive = false) =>
-        SendAsync<List<ResourceDto>>(HttpMethod.Get, $"api/resources?includeInactive={includeInactive}");
+    public Task<PagedResult<ResourceDto>?> GetResourcesAsync(bool includeInactive = false, int page = 1, int pageSize = 50) =>
+        SendAsync<PagedResult<ResourceDto>>(HttpMethod.Get, $"api/resources?includeInactive={includeInactive}&page={page}&pageSize={pageSize}");
 
     public Task<ResourceDto?> CreateResourceAsync(CreateResourceRequest request) =>
         SendAsync<ResourceDto>(HttpMethod.Post, "api/resources", request);
@@ -61,11 +62,11 @@ public class BookItApiClient(HttpClient http, AuthSession session)
         return (await response.Content.ReadFromJsonAsync<BookingDto>(), null);
     }
 
-    public Task<List<BookingDto>?> GetMyBookingsAsync() =>
-        SendAsync<List<BookingDto>>(HttpMethod.Get, "api/bookings/mine");
+    public Task<PagedResult<BookingDto>?> GetMyBookingsAsync(int page = 1, int pageSize = 50) =>
+        SendAsync<PagedResult<BookingDto>>(HttpMethod.Get, $"api/bookings/mine?page={page}&pageSize={pageSize}");
 
-    public Task<List<BookingDto>?> GetAllBookingsAsync() =>
-        SendAsync<List<BookingDto>>(HttpMethod.Get, "api/bookings");
+    public Task<PagedResult<BookingDto>?> GetAllBookingsAsync(int page = 1, int pageSize = 50) =>
+        SendAsync<PagedResult<BookingDto>>(HttpMethod.Get, $"api/bookings?page={page}&pageSize={pageSize}");
 
     public Task<BookingDto?> ConfirmBookingAsync(Guid id) =>
         SendAsync<BookingDto>(HttpMethod.Post, $"api/bookings/{id}/confirm");
@@ -135,11 +136,11 @@ public class BookItApiClient(HttpClient http, AuthSession session)
         var response = await http.PostAsJsonAsync("api/auth/refresh", new RefreshRequest(session.Current.RefreshToken));
         if (!response.IsSuccessStatusCode)
         {
-            session.Clear();
+            await session.ClearAsync();
             return false;
         }
 
-        session.Set((await response.Content.ReadFromJsonAsync<AuthResponse>())!);
+        await session.SetAsync((await response.Content.ReadFromJsonAsync<AuthResponse>())!);
         return true;
     }
 

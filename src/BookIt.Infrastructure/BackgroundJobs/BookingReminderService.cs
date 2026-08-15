@@ -10,10 +10,11 @@ using Microsoft.Extensions.Logging;
 namespace BookIt.Infrastructure.BackgroundJobs;
 
 /// <summary>
-/// Recurring reminder job built on the framework's own <see cref="BackgroundService"/> +
+/// Recurring maintenance job built on the framework's own <see cref="BackgroundService"/> +
 /// <see cref="PeriodicTimer"/> (Microsoft.Extensions.Hosting) instead of a third-party scheduler
-/// like Hangfire. Every sweep looks for confirmed bookings starting within the reminder window
-/// that haven't been reminded yet, and emails the owner.
+/// like Hangfire. Every sweep: (1) looks for confirmed bookings starting within the reminder
+/// window that haven't been reminded yet and emails the owner, and (2) purges old refresh tokens
+/// so that table doesn't grow forever.
 /// </summary>
 public class BookingReminderService(
     IServiceScopeFactory scopeFactory,
@@ -21,6 +22,7 @@ public class BookingReminderService(
 {
     private static readonly TimeSpan ReminderWindow = TimeSpan.FromHours(2);
     private static readonly TimeSpan SweepInterval = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan TokenRetention = TimeSpan.FromDays(7);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -31,10 +33,11 @@ public class BookingReminderService(
             try
             {
                 await SendDueRemindersAsync(stoppingToken);
+                await CleanupExpiredRefreshTokensAsync(stoppingToken);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                logger.LogError(ex, "Booking reminder sweep failed.");
+                logger.LogError(ex, "Background maintenance sweep failed.");
             }
         }
         while (await timer.WaitForNextTickAsync(stoppingToken));
@@ -76,6 +79,27 @@ public class BookingReminderService(
         {
             await db.SaveChangesAsync(cancellationToken);
             logger.LogInformation("Sent {Count} booking reminder(s).", dueBookings.Count);
+        }
+    }
+
+    private async Task CleanupExpiredRefreshTokensAsync(CancellationToken cancellationToken)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<BookItDbContext>();
+
+        var cutoff = DateTime.UtcNow.Subtract(TokenRetention);
+
+        // ExecuteDeleteAsync issues a single DELETE ... WHERE statement — no loading rows into
+        // the change tracker just to remove them. Rows are kept for a short retention window
+        // after expiry/revocation (not deleted immediately) purely so a reuse-detection incident
+        // has a trail to inspect for a few days.
+        var deleted = await db.RefreshTokens
+            .Where(t => t.ExpiresAtUtc < cutoff || (t.RevokedAtUtc != null && t.RevokedAtUtc < cutoff))
+            .ExecuteDeleteAsync(cancellationToken);
+
+        if (deleted > 0)
+        {
+            logger.LogInformation("Purged {Count} expired/revoked refresh token(s).", deleted);
         }
     }
 }

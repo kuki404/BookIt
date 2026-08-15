@@ -25,23 +25,11 @@ public static class DbInitializer
         }
 
         var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
-        var adminEmail = "admin@bookit.local";
-        if (await userManager.FindByEmailAsync(adminEmail) is null)
-        {
-            var admin = new ApplicationUser
-            {
-                UserName = adminEmail,
-                Email = adminEmail,
-                DisplayName = "Admin",
-                EmailConfirmed = true
-            };
 
-            var result = await userManager.CreateAsync(admin, "Admin123!");
-            if (result.Succeeded)
-            {
-                await userManager.AddToRoleAsync(admin, Roles.Admin);
-            }
-        }
+        // Seeded so the "Demo login" buttons on the Login page (BookIt.Web) work out of the box —
+        // a reviewer can try the whole app without typing a single password.
+        await EnsureUserAsync(userManager, "admin@bookit.local", "Admin123!", "Demo Admin", Roles.Admin);
+        await EnsureUserAsync(userManager, "customer@bookit.local", "Customer123!", "Demo Customer", Roles.Customer);
 
         if (!await db.Resources.AnyAsync())
         {
@@ -53,6 +41,28 @@ public static class DbInitializer
             );
 
             await db.SaveChangesAsync();
+        }
+    }
+
+    private static async Task EnsureUserAsync(UserManager<ApplicationUser> userManager, string email, string password, string displayName, string role)
+    {
+        if (await userManager.FindByEmailAsync(email) is not null)
+        {
+            return;
+        }
+
+        var user = new ApplicationUser
+        {
+            UserName = email,
+            Email = email,
+            DisplayName = displayName,
+            EmailConfirmed = true
+        };
+
+        var result = await userManager.CreateAsync(user, password);
+        if (result.Succeeded)
+        {
+            await userManager.AddToRoleAsync(user, role);
         }
     }
 }

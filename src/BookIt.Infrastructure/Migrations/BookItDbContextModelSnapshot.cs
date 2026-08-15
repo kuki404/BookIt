@@ -77,7 +77,8 @@ namespace BookIt.Infrastructure.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.HasIndex("ResourceId", "StartUtc", "EndUtc");
+                    b.HasIndex("ResourceId", "StartUtc", "EndUtc")
+                        .HasFilter("[Status] <> 'Cancelled'");
 
                     b.ToTable("Bookings", (string)null);
                 });
@@ -113,7 +114,8 @@ namespace BookIt.Infrastructure.Migrations
                     b.HasIndex("TokenHash")
                         .IsUnique();
 
-                    b.HasIndex("UserId");
+                    b.HasIndex("UserId", "RevokedAtUtc")
+                        .HasFilter("[RevokedAtUtc] IS NULL");
 
                     b.ToTable("RefreshTokens", (string)null);
                 });
@@ -149,7 +151,7 @@ namespace BookIt.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Type");
+                    b.HasIndex("IsActive", "Name");
 
                     b.ToTable("Resources", (string)null);
                 });

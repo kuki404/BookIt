@@ -1,0 +1,43 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+
+[*.cs]
+indent_size = 4
+
+# 'var' when the type is obvious from the right-hand side, explicit type otherwise.
+csharp_style_var_for_built_in_types = false:suggestion
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_var_elsewhere = false:suggestion
+
+# One using block, System.* first, sorted, outside the namespace.
+dotnet_sort_system_directives_first = true
+csharp_using_directive_placement = outside_namespace:warning
+
+# File-scoped namespaces everywhere (BookIt uses these throughout).
+csharp_style_namespace_declarations = file_scoped:warning
+
+# Expression-bodied members where they read as a single expression.
+csharp_style_expression_bodied_methods = when_on_single_line:suggestion
+csharp_style_expression_bodied_properties = true:suggestion
+
+# Braces required for multi-line blocks; single-line if/for stay unbraced only when trivial.
+csharp_prefer_braces = true:suggestion
+
+dotnet_naming_rule.private_fields_use_camel_case.severity = suggestion
+dotnet_naming_rule.private_fields_use_camel_case.symbols = private_fields
+dotnet_naming_rule.private_fields_use_camel_case.style = camel_case
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+dotnet_naming_style.camel_case.capitalization = camel_case
+
+[*.{json,yml,yaml}]
+indent_size = 2
+
+[*.razor]
+indent_size = 4

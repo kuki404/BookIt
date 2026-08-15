@@ -3,13 +3,18 @@
 @inject BookItApiClient Api
 @inject ISnackbar Snackbar
 
-<PageTitle>All bookings</PageTitle>
+<PageTitle>All bookings – BookIt</PageTitle>
+<HeadContent>
+    <meta name="robots" content="noindex" />
+</HeadContent>
 
 <MudText Typo="Typo.h4" Class="mb-4">All bookings</MudText>
 
 @if (bookings is null)
 {
-    <MudProgressCircular Indeterminate="true" />
+    <MudSkeleton Height="40px" Class="mb-2" />
+    <MudSkeleton Height="40px" Class="mb-2" />
+    <MudSkeleton Height="40px" Class="mb-2" />
 }
 else if (bookings.Count == 0)
 {
@@ -28,9 +33,9 @@ else
         <RowTemplate>
             <MudTd DataLabel="Reference">@context.ReferenceCode</MudTd>
             <MudTd DataLabel="Resource">@context.ResourceName</MudTd>
-            <MudTd DataLabel="When">@context.StartUtc.ToString("g") – @context.EndUtc.ToString("t")</MudTd>
+            <MudTd DataLabel="When">@context.TimeRangeDisplay</MudTd>
             <MudTd DataLabel="Status">
-                <MudChip T="string" Color="@StatusColor(context.Status)" Size="Size.Small">@context.StatusDisplay</MudChip>
+                <MudChip T="string" Color="@context.StatusColor" Size="Size.Small">@context.StatusDisplay</MudChip>
             </MudTd>
             <MudTd>
                 @if (context.Status == BookingStatus.Pending)
@@ -56,11 +61,11 @@ else
 }
 
 @code {
-    private List<BookingDto>? bookings;
+    private List<BookingViewModel>? bookings;
 
     protected override async Task OnInitializedAsync() => await LoadAsync();
 
-    private async Task LoadAsync() => bookings = await Api.GetAllBookingsAsync() ?? [];
+    private async Task LoadAsync() => bookings = (await Api.GetAllBookingsAsync())?.Items.Adapt<List<BookingViewModel>>() ?? [];
 
     private async Task RunAsync(Func<Task<BookingDto?>> action)
     {
@@ -76,14 +81,4 @@ else
             booking is not null ? Severity.Success : Severity.Error);
         await LoadAsync();
     }
-
-    private static Color StatusColor(BookingStatus status) => status switch
-    {
-        BookingStatus.Pending => Color.Warning,
-        BookingStatus.Confirmed => Color.Primary,
-        BookingStatus.CheckedIn => Color.Info,
-        BookingStatus.Completed => Color.Success,
-        BookingStatus.Cancelled => Color.Default,
-        _ => Color.Default
-    };
 }

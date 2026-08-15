@@ -2,7 +2,11 @@
 @inject BookItApiClient Api
 @inject NavigationManager Navigation
 
-<PageTitle>Log in</PageTitle>
+<PageTitle>Log in – BookIt</PageTitle>
+<HeadContent>
+    <meta name="description" content="Log in to BookIt to reserve rooms, equipment and services." />
+    <meta name="robots" content="noindex" />
+</HeadContent>
 
 <MudText Typo="Typo.h4" Class="mb-4">Log in</MudText>
 
@@ -16,12 +20,28 @@
     }
 
     <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="SubmitAsync" Disabled="submitting">
+        @if (submitting)
+        {
+            <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+        }
         Log in
     </MudButton>
 
     <MudText Typo="Typo.body2" Class="mt-3">
         No account yet? <MudLink Href="/register">Register</MudLink>
     </MudText>
+
+    <MudDivider Class="my-4" />
+
+    <MudText Typo="Typo.body2" Class="mb-2">Or try it instantly with seeded demo data — no typing required:</MudText>
+    <div class="d-flex gap-2">
+        <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="@(() => DemoLoginAsync("admin@bookit.local", "Admin123!"))" Disabled="submitting">
+            Demo Admin
+        </MudButton>
+        <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="@(() => DemoLoginAsync("customer@bookit.local", "Customer123!"))" Disabled="submitting">
+            Demo Customer
+        </MudButton>
+    </div>
 </MudPaper>
 
 @code {
@@ -29,13 +49,17 @@
     private string? errorMessage;
     private bool submitting;
 
-    private async Task SubmitAsync()
+    private Task SubmitAsync() => LoginAsync(model.Email, model.Password);
+
+    private Task DemoLoginAsync(string email, string password) => LoginAsync(email, password);
+
+    private async Task LoginAsync(string email, string password)
     {
         errorMessage = null;
         submitting = true;
         try
         {
-            var (success, error) = await Api.LoginAsync(new LoginRequest(model.Email, model.Password));
+            var (success, error) = await Api.LoginAsync(new LoginRequest(email, password));
             if (success)
             {
                 Navigation.NavigateTo("/resources");

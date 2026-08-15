@@ -1,8 +1,10 @@
 using BookIt.Api.Authorization;
+using BookIt.Application.Common;
 using BookIt.Application.Dtos;
 using BookIt.Application.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.OutputCaching;
 
 namespace BookIt.Api.Controllers;
 
@@ -13,8 +15,13 @@ public class ResourcesController(IResourceService resourceService) : ControllerB
 {
     [HttpGet]
     [AllowAnonymous]
-    public async Task<ActionResult<List<ResourceDto>>> GetAll([FromQuery] bool includeInactive = false) =>
-        Ok(await resourceService.GetAllAsync(includeInactive));
+    // Public catalog, identical response for every caller — a good fit for response caching.
+    // VaryByQuery so ?includeInactive=/page=/pageSize= each get their own cached entry rather
+    // than colliding on one. Invalidated indirectly: the underlying HybridCache entry this reads
+    // from is tag-invalidated on write, and this response expires on its own short timer.
+    [OutputCache(Duration = 60, VaryByQueryKeys = ["includeInactive", "page", "pageSize"])]
+    public async Task<ActionResult<PagedResult<ResourceDto>>> GetAll([FromQuery] bool includeInactive, [FromQuery] PagedRequest paging) =>
+        Ok(await resourceService.GetAllAsync(includeInactive, paging));
 
     [HttpGet("{id:guid}")]
     [AllowAnonymous]

@@ -2,16 +2,21 @@ using BookIt.Application.Abstractions;
 using BookIt.Application.Dtos;
 using BookIt.Infrastructure;
 using BookIt.Infrastructure.Identity;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 namespace BookIt.Api.Controllers;
 
 [ApiController]
 [Route("api/auth")]
+[AllowAnonymous] // the API is authenticated-by-default (see FallbackPolicy in Program.cs); auth itself must stay reachable
+[EnableRateLimiting("auth")] // login/register/refresh are the highest-value brute-force targets — stricter than the global per-IP limit
 public class AuthController(
     UserManager<ApplicationUser> userManager,
+    SignInManager<ApplicationUser> signInManager,
     BookItDbContext db,
     ITokenService tokenService) : ControllerBase
 {
@@ -20,11 +25,6 @@ public class AuthController(
     [HttpPost("register")]
     public async Task<ActionResult<AuthResponse>> Register(RegisterRequest request)
     {
-        if (await userManager.FindByEmailAsync(request.Email) is not null)
-        {
-            return Conflict(new { error = "An account with this email already exists." });
-        }
-
         var user = new ApplicationUser
         {
             UserName = request.Email,
@@ -36,7 +36,11 @@ public class AuthController(
         var createResult = await userManager.CreateAsync(user, request.Password);
         if (!createResult.Succeeded)
         {
-            return ValidationProblem(string.Join(" ", createResult.Errors.Select(e => e.Description)));
+            // Deliberately generic: distinguishing "email already registered" from "weak password"
+            // would let an attacker enumerate registered accounts. The auth-specific rate limiter
+            // (Program.cs) is the primary defense against brute-forcing this endpoint either way.
+            return Problem(statusCode: StatusCodes.Status400BadRequest, title: "Registration failed.",
+                detail: "Could not create an account with the provided details.");
         }
 
         await userManager.AddToRoleAsync(user, Roles.Customer);
@@ -48,7 +52,24 @@ public class AuthController(
     public async Task<ActionResult<AuthResponse>> Login(LoginRequest request)
     {
         var user = await userManager.FindByEmailAsync(request.Email);
-        if (user is null || !await userManager.CheckPasswordAsync(user, request.Password))
+        if (user is null)
+        {
+            // Same 401 + message as a wrong password below — an "unknown email" response would
+            // let an attacker enumerate accounts one guess at a time.
+            return Unauthorized(new { error = "Invalid email or password." });
+        }
+
+        // CheckPasswordSignInAsync (not UserManager.CheckPasswordAsync) is what actually counts
+        // failed attempts and locks the account out — a plain password check has no brute-force
+        // protection at all.
+        var result = await signInManager.CheckPasswordSignInAsync(user, request.Password, lockoutOnFailure: true);
+        if (result.IsLockedOut)
+        {
+            return Problem(statusCode: StatusCodes.Status423Locked, title: "Account locked.",
+                detail: "Too many failed attempts. Try again later.");
+        }
+
+        if (!result.Succeeded)
         {
             return Unauthorized(new { error = "Invalid email or password." });
         }
@@ -62,7 +83,25 @@ public class AuthController(
         var tokenHash = tokenService.HashRefreshToken(request.RefreshToken);
         var storedToken = await db.RefreshTokens.FirstOrDefaultAsync(t => t.TokenHash == tokenHash);
 
-        if (storedToken is null || !storedToken.IsActive)
+        if (storedToken is null)
+        {
+            return Unauthorized(new { error = "Refresh token is invalid or expired." });
+        }
+
+        if (storedToken.RevokedAtUtc is not null)
+        {
+            // Reuse of an already-revoked token means someone replayed a captured/stolen token —
+            // the legitimate rotation already moved past it. Treat this as a compromise: kill
+            // every active session for the account, not just this one token (OWASP/OAuth 2.0
+            // Security BCP "refresh token reuse detection").
+            await db.RefreshTokens
+                .Where(t => t.UserId == storedToken.UserId && t.RevokedAtUtc == null)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(t => t.RevokedAtUtc, DateTime.UtcNow));
+
+            return Unauthorized(new { error = "Refresh token has already been used. All sessions were revoked." });
+        }
+
+        if (!storedToken.IsActive)
         {
             return Unauthorized(new { error = "Refresh token is invalid or expired." });
         }
@@ -73,11 +112,11 @@ public class AuthController(
             return Unauthorized(new { error = "User no longer exists." });
         }
 
-        // Rotate: the old token is immediately revoked so it can never be replayed, even if the
-        // caller (or an attacker who captured it in transit) tries to reuse it.
-        var response = await IssueTokensAsync(user);
-        var newToken = await db.RefreshTokens.OrderByDescending(t => t.CreatedAtUtc).FirstAsync(t => t.UserId == user.Id);
-        storedToken.Revoke(newToken.Id);
+        // Rotate: issue a new pair, then link the old row to the new one and revoke it — captured
+        // directly from IssueTokensAsync's return value instead of re-querying "the newest token
+        // for this user", which would race under concurrent refresh calls.
+        var (response, newTokenEntity) = await IssueTokensWithEntityAsync(user);
+        storedToken.Revoke(newTokenEntity.Id);
         await db.SaveChangesAsync();
 
         return Ok(response);
@@ -87,18 +126,20 @@ public class AuthController(
     public async Task<IActionResult> Revoke(RefreshRequest request)
     {
         var tokenHash = tokenService.HashRefreshToken(request.RefreshToken);
-        var storedToken = await db.RefreshTokens.FirstOrDefaultAsync(t => t.TokenHash == tokenHash);
 
-        if (storedToken is { IsActive: true })
-        {
-            storedToken.Revoke();
-            await db.SaveChangesAsync();
-        }
+        // ExecuteUpdateAsync: a single UPDATE, no SELECT-then-save round trip for what's really a
+        // one-column write, and it's a no-op (0 rows affected) if the token doesn't exist/is
+        // already revoked — no need to branch on that here.
+        await db.RefreshTokens
+            .Where(t => t.TokenHash == tokenHash && t.RevokedAtUtc == null)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(t => t.RevokedAtUtc, DateTime.UtcNow));
 
         return NoContent();
     }
 
-    private async Task<AuthResponse> IssueTokensAsync(ApplicationUser user)
+    private async Task<AuthResponse> IssueTokensAsync(ApplicationUser user) => (await IssueTokensWithEntityAsync(user)).Response;
+
+    private async Task<(AuthResponse Response, Domain.Entities.RefreshToken Entity)> IssueTokensWithEntityAsync(ApplicationUser user)
     {
         var roles = (await userManager.GetRolesAsync(user)).ToList();
         var accessToken = tokenService.CreateAccessToken(new TokenSubject(user.Id, user.Email!, user.DisplayName, roles));
@@ -108,12 +149,14 @@ public class AuthController(
         db.RefreshTokens.Add(refreshTokenEntity);
         await db.SaveChangesAsync();
 
-        return new AuthResponse(
+        var response = new AuthResponse(
             accessToken.Value,
             accessToken.ExpiresAtUtc,
             rawRefreshToken,
             refreshTokenEntity.ExpiresAtUtc,
             user.DisplayName,
             roles);
+
+        return (response, refreshTokenEntity);
     }
 }

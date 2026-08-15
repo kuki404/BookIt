@@ -5,7 +5,7 @@ namespace BookIt.Application.Services;
 
 public interface IResourceService
 {
-    Task<List<ResourceDto>> GetAllAsync(bool includeInactive, CancellationToken cancellationToken = default);
+    ValueTask<PagedResult<ResourceDto>> GetAllAsync(bool includeInactive, PagedRequest paging, CancellationToken cancellationToken = default);
     Task<Result<ResourceDto>> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task<ResourceDto> CreateAsync(CreateResourceRequest request, CancellationToken cancellationToken = default);
     Task<Result<ResourceDto>> UpdateAsync(Guid id, UpdateResourceRequest request, CancellationToken cancellationToken = default);

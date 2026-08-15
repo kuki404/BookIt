@@ -1,5 +1,6 @@
 using BookIt.Api.Authorization;
 using BookIt.Api.Extensions;
+using BookIt.Application.Common;
 using BookIt.Application.Dtos;
 using BookIt.Application.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -22,13 +23,13 @@ public class BookingsController(IBookingService bookingService, IAuthorizationSe
     }
 
     [HttpGet("mine")]
-    public async Task<ActionResult<List<BookingDto>>> GetMine() =>
-        Ok(await bookingService.GetForUserAsync(User.GetUserId()));
+    public async Task<ActionResult<PagedResult<BookingDto>>> GetMine([FromQuery] PagedRequest paging) =>
+        Ok(await bookingService.GetForUserAsync(User.GetUserId(), paging));
 
     [HttpGet]
     [Authorize(Policy = PolicyNames.AdminOnly)]
-    public async Task<ActionResult<List<BookingDto>>> GetAll() =>
-        Ok(await bookingService.GetAllAsync());
+    public async Task<ActionResult<PagedResult<BookingDto>>> GetAll([FromQuery] PagedRequest paging) =>
+        Ok(await bookingService.GetAllAsync(paging));
 
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<BookingDto>> GetById(Guid id)

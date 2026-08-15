@@ -3,17 +3,28 @@
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 
-<PageTitle>Resources</PageTitle>
+<PageTitle>Resources – BookIt</PageTitle>
+<HeadContent>
+    <meta name="description" content="Browse bookable rooms, equipment and services." />
+    <link rel="canonical" href="/resources" />
+</HeadContent>
 
 <MudText Typo="Typo.h4" Class="mb-4">Resources</MudText>
 
 @if (resources is null)
 {
-    <MudProgressCircular Indeterminate="true" />
+    <MudSkeleton Height="40px" Class="mb-2" />
+    <MudSkeleton Height="40px" Class="mb-2" />
+    <MudSkeleton Height="40px" Class="mb-2" />
 }
 else if (resources.Count == 0)
 {
-    <MudAlert Severity="Severity.Info">No resources available yet.</MudAlert>
+    <MudAlert Severity="Severity.Info" Icon="@Icons.Material.Filled.Inbox">
+        No resources available yet.
+        <AuthorizeView Roles="Admin" Context="authState">
+            <Authorized>— add one under <MudLink Href="/admin/resources">Manage resources</MudLink>.</Authorized>
+        </AuthorizeView>
+    </MudAlert>
 }
 else
 {
@@ -27,7 +38,7 @@ else
         </HeaderContent>
         <RowTemplate>
             <MudTd DataLabel="Name">@context.Name</MudTd>
-            <MudTd DataLabel="Type">@context.TypeDisplay</MudTd>
+            <MudTd DataLabel="Type"><MudIcon Icon="@context.TypeIcon" Size="Size.Small" Class="mr-1" />@context.TypeDisplay</MudTd>
             <MudTd DataLabel="Capacity">@context.Capacity</MudTd>
             <MudTd DataLabel="Description">@context.Description</MudTd>
             <MudTd>
@@ -47,14 +58,14 @@ else
 }
 
 @code {
-    private List<ResourceDto>? resources;
+    private List<ResourceViewModel>? resources;
 
     protected override async Task OnInitializedAsync()
     {
-        resources = await Api.GetResourcesAsync() ?? [];
+        resources = (await Api.GetResourcesAsync())?.Items.Adapt<List<ResourceViewModel>>() ?? [];
     }
 
-    private async Task BookAsync(ResourceDto resource)
+    private async Task BookAsync(ResourceViewModel resource)
     {
         var parameters = new DialogParameters<BookResourceDialog> { { d => d.Resource, resource } };
         var dialog = await DialogService.ShowAsync<BookResourceDialog>($"Book {resource.Name}", parameters);

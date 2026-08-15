@@ -41,6 +41,7 @@ services:
       Jwt__Audience: BookIt.Client
       Jwt__AccessTokenMinutes: "15"
       Jwt__Secret: ${JWT_SECRET}
+      Cors__AllowedOrigins__0: http://localhost:5232
     ports:
       - "127.0.0.1:5098:8080"
     depends_on:
@@ -60,7 +61,8 @@ services:
     ports:
       - "127.0.0.1:5232:8080"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
 volumes:
   bookit_sqlserver_data:
