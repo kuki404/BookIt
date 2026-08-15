@@ -1,0 +1,57 @@
+# Azure DevOps YAML pipeline. Mirrors .github/workflows/ci.yml (restore/build/test/docker build)
+# using Azure Pipelines syntax. Not wired to a live Azure DevOps project — included to show the
+# pipeline format; drop it into Pipelines > New pipeline > Existing YAML file on an Azure DevOps
+# project to activate it.
+
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: "ubuntu-latest"
+
+variables:
+  buildConfiguration: "Release"
+  dotnetVersion: "10.0.x"
+
+stages:
+  - stage: BuildAndTest
+    jobs:
+      - job: Build
+        steps:
+          - task: UseDotNet@2
+            displayName: "Install .NET SDK"
+            inputs:
+              version: $(dotnetVersion)
+
+          - script: dotnet restore BookIt.sln
+            displayName: "dotnet restore"
+
+          - script: dotnet build BookIt.sln --no-restore --configuration $(buildConfiguration)
+            displayName: "dotnet build"
+
+          - script: dotnet test tests/BookIt.UnitTests/BookIt.UnitTests.csproj --no-build --configuration $(buildConfiguration) --logger trx
+            displayName: "Unit tests"
+
+          - task: PublishTestResults@2
+            condition: succeededOrFailed()
+            inputs:
+              testResultsFormat: "VSTest"
+              testResultsFiles: "**/*.trx"
+
+  - stage: DockerBuild
+    dependsOn: BuildAndTest
+    jobs:
+      - job: BuildImages
+        steps:
+          - script: docker build -f src/BookIt.Api/Dockerfile -t bookit-api:$(Build.BuildId) .
+            displayName: "Build Api image"
+
+          - script: docker build -f src/BookIt.Web/Dockerfile -t bookit-web:$(Build.BuildId) .
+            displayName: "Build Web image"

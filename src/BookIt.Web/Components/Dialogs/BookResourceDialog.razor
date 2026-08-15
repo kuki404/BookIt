@@ -1,0 +1,88 @@
+@inject BookItApiClient Api
+@inject IJSRuntime JsRuntime
+
+<MudDialog>
+    <DialogContent>
+        @if (confirmedReference is not null)
+        {
+            <MudAlert Severity="Severity.Success" Class="mb-3">Booked! Reference: <b>@confirmedReference</b></MudAlert>
+            <MudButton StartIcon="@Icons.Material.Filled.ContentCopy" Variant="Variant.Outlined" OnClick="CopyReferenceAsync">
+                Copy reference
+            </MudButton>
+        }
+        else
+        {
+            <MudText Typo="Typo.body2" Class="mb-3">@Resource.Name — capacity @Resource.Capacity</MudText>
+
+            <MudDatePicker Label="Date" @bind-Date="date" Class="mb-3" MinDate="DateTime.Today" />
+            <MudTimePicker Label="Start time" @bind-Time="startTime" Class="mb-3" />
+            <MudNumericField T="int" Label="Duration (minutes)" @bind-Value="durationMinutes" Min="15" Max="480" Step="15" Class="mb-3" />
+            <MudTextField T="string" Label="Notes (optional)" @bind-Value="notes" Lines="2" Class="mb-3" />
+
+            @if (errorMessage is not null)
+            {
+                <MudAlert Severity="Severity.Error">@errorMessage</MudAlert>
+            }
+        }
+    </DialogContent>
+    <DialogActions>
+        @if (confirmedReference is not null)
+        {
+            <MudButton OnClick="Close">Close</MudButton>
+        }
+        else
+        {
+            <MudButton OnClick="Cancel">Cancel</MudButton>
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitAsync" Disabled="submitting">Book</MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public ResourceDto Resource { get; set; } = default!;
+
+    private DateTime? date = DateTime.Today;
+    private TimeSpan? startTime = new(9, 0, 0);
+    private int durationMinutes = 60;
+    private string? notes;
+    private string? errorMessage;
+    private string? confirmedReference;
+    private bool submitting;
+
+    private async Task SubmitAsync()
+    {
+        errorMessage = null;
+
+        if (date is null || startTime is null)
+        {
+            errorMessage = "Pick a date and start time.";
+            return;
+        }
+
+        var startUtc = DateTime.SpecifyKind(date.Value.Date + startTime.Value, DateTimeKind.Utc);
+        var endUtc = startUtc.AddMinutes(durationMinutes);
+
+        submitting = true;
+        try
+        {
+            var (booking, error) = await Api.CreateBookingAsync(new CreateBookingRequest(Resource.Id, startUtc, endUtc, notes));
+            if (booking is null)
+            {
+                errorMessage = error ?? "Booking failed.";
+                return;
+            }
+
+            confirmedReference = booking.ReferenceCode;
+        }
+        finally
+        {
+            submitting = false;
+        }
+    }
+
+    private async Task CopyReferenceAsync() => await JsRuntime.InvokeVoidAsync("copyToClipboard", confirmedReference);
+
+    private void Cancel() => MudDialog.Cancel();
+    private void Close() => MudDialog.Close(DialogResult.Ok(true));
+}

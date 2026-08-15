@@ -1,0 +1,13 @@
+using BookIt.Application.Common;
+using BookIt.Application.Dtos;
+
+namespace BookIt.Application.Services;
+
+public interface IResourceService
+{
+    Task<List<ResourceDto>> GetAllAsync(bool includeInactive, CancellationToken cancellationToken = default);
+    Task<Result<ResourceDto>> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<ResourceDto> CreateAsync(CreateResourceRequest request, CancellationToken cancellationToken = default);
+    Task<Result<ResourceDto>> UpdateAsync(Guid id, UpdateResourceRequest request, CancellationToken cancellationToken = default);
+    Task<Result> DeactivateAsync(Guid id, CancellationToken cancellationToken = default);
+}

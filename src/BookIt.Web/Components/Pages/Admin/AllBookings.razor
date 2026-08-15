@@ -1,0 +1,89 @@
+@page "/admin/bookings"
+@attribute [Authorize(Roles = "Admin")]
+@inject BookItApiClient Api
+@inject ISnackbar Snackbar
+
+<PageTitle>All bookings</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">All bookings</MudText>
+
+@if (bookings is null)
+{
+    <MudProgressCircular Indeterminate="true" />
+}
+else if (bookings.Count == 0)
+{
+    <MudAlert Severity="Severity.Info">No bookings yet.</MudAlert>
+}
+else
+{
+    <MudTable Items="bookings" Hover="true" Elevation="1">
+        <HeaderContent>
+            <MudTh>Reference</MudTh>
+            <MudTh>Resource</MudTh>
+            <MudTh>When (UTC)</MudTh>
+            <MudTh>Status</MudTh>
+            <MudTh>Actions</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Reference">@context.ReferenceCode</MudTd>
+            <MudTd DataLabel="Resource">@context.ResourceName</MudTd>
+            <MudTd DataLabel="When">@context.StartUtc.ToString("g") – @context.EndUtc.ToString("t")</MudTd>
+            <MudTd DataLabel="Status">
+                <MudChip T="string" Color="@StatusColor(context.Status)" Size="Size.Small">@context.StatusDisplay</MudChip>
+            </MudTd>
+            <MudTd>
+                @if (context.Status == BookingStatus.Pending)
+                {
+                    <MudButton Size="Size.Small" Color="Color.Primary" OnClick="@(() => RunAsync(() => Api.ConfirmBookingAsync(context.Id)))">Confirm</MudButton>
+                }
+                @if (context.Status == BookingStatus.Confirmed)
+                {
+                    <MudButton Size="Size.Small" Color="Color.Info" OnClick="@(() => RunAsync(() => Api.CheckInBookingAsync(context.Id)))">Check in</MudButton>
+                }
+                @if (context.Status == BookingStatus.CheckedIn)
+                {
+                    <MudButton Size="Size.Small" Color="Color.Success" OnClick="@(() => RunAsync(() => Api.CompleteBookingAsync(context.Id)))">Complete</MudButton>
+                }
+                @if (context.Status is BookingStatus.Pending or BookingStatus.Confirmed)
+                {
+                    <MudButton Size="Size.Small" Color="Color.Error" Variant="Variant.Text"
+                               OnClick="@(() => CancelAsync(context.Id))">Cancel</MudButton>
+                }
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+}
+
+@code {
+    private List<BookingDto>? bookings;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync() => bookings = await Api.GetAllBookingsAsync() ?? [];
+
+    private async Task RunAsync(Func<Task<BookingDto?>> action)
+    {
+        var result = await action();
+        Snackbar.Add(result is not null ? "Updated." : "Action failed.", result is not null ? Severity.Success : Severity.Error);
+        await LoadAsync();
+    }
+
+    private async Task CancelAsync(Guid id)
+    {
+        var (booking, error) = await Api.CancelBookingAsync(id, "Cancelled by admin");
+        Snackbar.Add(booking is not null ? "Booking cancelled." : error ?? "Cancel failed.",
+            booking is not null ? Severity.Success : Severity.Error);
+        await LoadAsync();
+    }
+
+    private static Color StatusColor(BookingStatus status) => status switch
+    {
+        BookingStatus.Pending => Color.Warning,
+        BookingStatus.Confirmed => Color.Primary,
+        BookingStatus.CheckedIn => Color.Info,
+        BookingStatus.Completed => Color.Success,
+        BookingStatus.Cancelled => Color.Default,
+        _ => Color.Default
+    };
+}

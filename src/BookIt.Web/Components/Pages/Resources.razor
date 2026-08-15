@@ -1,0 +1,68 @@
+@page "/resources"
+@inject BookItApiClient Api
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+<PageTitle>Resources</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">Resources</MudText>
+
+@if (resources is null)
+{
+    <MudProgressCircular Indeterminate="true" />
+}
+else if (resources.Count == 0)
+{
+    <MudAlert Severity="Severity.Info">No resources available yet.</MudAlert>
+}
+else
+{
+    <MudTable Items="resources" Hover="true" Elevation="1">
+        <HeaderContent>
+            <MudTh>Name</MudTh>
+            <MudTh>Type</MudTh>
+            <MudTh>Capacity</MudTh>
+            <MudTh>Description</MudTh>
+            <MudTh></MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Name">@context.Name</MudTd>
+            <MudTd DataLabel="Type">@context.TypeDisplay</MudTd>
+            <MudTd DataLabel="Capacity">@context.Capacity</MudTd>
+            <MudTd DataLabel="Description">@context.Description</MudTd>
+            <MudTd>
+                <AuthorizeView Context="authState">
+                    <Authorized>
+                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => BookAsync(context))">
+                            Book
+                        </MudButton>
+                    </Authorized>
+                    <NotAuthorized>
+                        <MudButton Size="Size.Small" Variant="Variant.Text" Href="/login">Log in to book</MudButton>
+                    </NotAuthorized>
+                </AuthorizeView>
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+}
+
+@code {
+    private List<ResourceDto>? resources;
+
+    protected override async Task OnInitializedAsync()
+    {
+        resources = await Api.GetResourcesAsync() ?? [];
+    }
+
+    private async Task BookAsync(ResourceDto resource)
+    {
+        var parameters = new DialogParameters<BookResourceDialog> { { d => d.Resource, resource } };
+        var dialog = await DialogService.ShowAsync<BookResourceDialog>($"Book {resource.Name}", parameters);
+        var result = await dialog.Result;
+
+        if (result is { Canceled: false })
+        {
+            Snackbar.Add("Booking request submitted.", Severity.Success);
+        }
+    }
+}

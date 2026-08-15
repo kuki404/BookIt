@@ -1,0 +1,66 @@
+services:
+  db:
+    container_name: bookit-db
+    image: mcr.microsoft.com/mssql/server:2025-latest
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
+      MSSQL_PID: Developer
+    ports:
+      # Loopback-only: the database is reachable only from this machine. Without the
+      # "127.0.0.1:" prefix, Docker would expose it to the whole local network.
+      - "127.0.0.1:1433:1433"
+    volumes:
+      - bookit_sqlserver_data:/var/opt/mssql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1' || exit 1"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  api:
+    container_name: bookit-api
+    build:
+      context: .
+      dockerfile: src/BookIt.Api/Dockerfile
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      Sql__Host: db
+      Sql__Port: "1433"
+      Sql__Database: BookIt
+      Sql__Password: ${MSSQL_SA_PASSWORD}
+      Jwt__Issuer: BookIt.Api
+      Jwt__Audience: BookIt.Client
+      Jwt__AccessTokenMinutes: "15"
+      Jwt__Secret: ${JWT_SECRET}
+    ports:
+      - "127.0.0.1:5098:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    container_name: bookit-web
+    build:
+      context: .
+      dockerfile: src/BookIt.Web/Dockerfile
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      Api__BaseUrl: http://api:8080
+    ports:
+      - "127.0.0.1:5232:8080"
+    depends_on:
+      - api
+
+volumes:
+  bookit_sqlserver_data:

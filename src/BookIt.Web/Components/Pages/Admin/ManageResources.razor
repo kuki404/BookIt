@@ -1,0 +1,111 @@
+@page "/admin/resources"
+@attribute [Authorize(Roles = "Admin")]
+@inject BookItApiClient Api
+@inject ISnackbar Snackbar
+
+<PageTitle>Manage resources</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">Manage resources</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <MudText Typo="Typo.h6" Class="mb-3">Add resource</MudText>
+    <MudGrid>
+        <MudItem xs="12" sm="4">
+            <MudTextField T="string" Label="Name" @bind-Value="newName" />
+        </MudItem>
+        <MudItem xs="12" sm="3">
+            <MudSelect T="ResourceType" Label="Type" @bind-Value="newType">
+                @foreach (var type in Enum.GetValues<ResourceType>())
+                {
+                    <MudSelectItem Value="type">@type</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="2">
+            <MudNumericField T="int" Label="Capacity" @bind-Value="newCapacity" Min="1" />
+        </MudItem>
+        <MudItem xs="12" sm="3">
+            <MudTextField T="string" Label="Description" @bind-Value="newDescription" />
+        </MudItem>
+    </MudGrid>
+    <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" OnClick="AddAsync">Add</MudButton>
+</MudPaper>
+
+@if (resources is null)
+{
+    <MudProgressCircular Indeterminate="true" />
+}
+else
+{
+    <MudTable Items="resources" Hover="true" Elevation="1">
+        <HeaderContent>
+            <MudTh>Name</MudTh>
+            <MudTh>Type</MudTh>
+            <MudTh>Capacity</MudTh>
+            <MudTh>Active</MudTh>
+            <MudTh></MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Name">@context.Name</MudTd>
+            <MudTd DataLabel="Type">@context.TypeDisplay</MudTd>
+            <MudTd DataLabel="Capacity">@context.Capacity</MudTd>
+            <MudTd DataLabel="Active">
+                <MudChip T="string" Size="Size.Small" Color="@(context.IsActive ? Color.Success : Color.Default)">
+                    @(context.IsActive ? "Active" : "Inactive")
+                </MudChip>
+            </MudTd>
+            <MudTd>
+                @if (context.IsActive)
+                {
+                    <MudButton Size="Size.Small" Color="Color.Error" Variant="Variant.Text" OnClick="@(() => DeactivateAsync(context.Id))">
+                        Deactivate
+                    </MudButton>
+                }
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+}
+
+@code {
+    private List<ResourceDto>? resources;
+
+    private string newName = string.Empty;
+    private ResourceType newType = ResourceType.Room;
+    private int newCapacity = 1;
+    private string? newDescription;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync() => resources = await Api.GetResourcesAsync(includeInactive: true) ?? [];
+
+    private async Task AddAsync()
+    {
+        if (string.IsNullOrWhiteSpace(newName))
+        {
+            Snackbar.Add("Name is required.", Severity.Warning);
+            return;
+        }
+
+        var created = await Api.CreateResourceAsync(new CreateResourceRequest(newName, newType, newCapacity, newDescription));
+        if (created is not null)
+        {
+            Snackbar.Add("Resource added.", Severity.Success);
+            newName = string.Empty;
+            newDescription = null;
+            newCapacity = 1;
+            await LoadAsync();
+        }
+        else
+        {
+            Snackbar.Add("Failed to add resource.", Severity.Error);
+        }
+    }
+
+    private async Task DeactivateAsync(Guid id)
+    {
+        var response = await Api.DeactivateResourceAsync(id);
+        Snackbar.Add(response.IsSuccessStatusCode ? "Resource deactivated." : "Failed to deactivate.",
+            response.IsSuccessStatusCode ? Severity.Success : Severity.Error);
+        await LoadAsync();
+    }
+}

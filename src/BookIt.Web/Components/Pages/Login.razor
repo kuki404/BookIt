@@ -1,0 +1,59 @@
+@page "/login"
+@inject BookItApiClient Api
+@inject NavigationManager Navigation
+
+<PageTitle>Log in</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">Log in</MudText>
+
+<MudPaper Class="pa-6" MaxWidth="420px" Elevation="1">
+    <MudTextField T="string" Label="Email" @bind-Value="model.Email" Required="true" InputType="InputType.Email" Class="mb-3" />
+    <MudTextField T="string" Label="Password" @bind-Value="model.Password" Required="true" InputType="InputType.Password" Class="mb-3" />
+
+    @if (errorMessage is not null)
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-3">@errorMessage</MudAlert>
+    }
+
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" OnClick="SubmitAsync" Disabled="submitting">
+        Log in
+    </MudButton>
+
+    <MudText Typo="Typo.body2" Class="mt-3">
+        No account yet? <MudLink Href="/register">Register</MudLink>
+    </MudText>
+</MudPaper>
+
+@code {
+    private readonly FormModel model = new();
+    private string? errorMessage;
+    private bool submitting;
+
+    private async Task SubmitAsync()
+    {
+        errorMessage = null;
+        submitting = true;
+        try
+        {
+            var (success, error) = await Api.LoginAsync(new LoginRequest(model.Email, model.Password));
+            if (success)
+            {
+                Navigation.NavigateTo("/resources");
+            }
+            else
+            {
+                errorMessage = error;
+            }
+        }
+        finally
+        {
+            submitting = false;
+        }
+    }
+
+    private class FormModel
+    {
+        public string Email { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+    }
+}

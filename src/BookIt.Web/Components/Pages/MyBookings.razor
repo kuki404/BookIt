@@ -1,0 +1,85 @@
+@page "/my-bookings"
+@attribute [Authorize]
+@inject BookItApiClient Api
+@inject IJSRuntime JsRuntime
+@inject ISnackbar Snackbar
+
+<PageTitle>My bookings</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">My bookings</MudText>
+
+@if (bookings is null)
+{
+    <MudProgressCircular Indeterminate="true" />
+}
+else if (bookings.Count == 0)
+{
+    <MudAlert Severity="Severity.Info">
+        You have no bookings yet. Head to <MudLink Href="/resources">Resources</MudLink> to book one.
+    </MudAlert>
+}
+else
+{
+    <MudTable Items="bookings" Hover="true" Elevation="1">
+        <HeaderContent>
+            <MudTh>Reference</MudTh>
+            <MudTh>Resource</MudTh>
+            <MudTh>When (UTC)</MudTh>
+            <MudTh>Status</MudTh>
+            <MudTh></MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Reference">
+                <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ContentCopy"
+                           OnClick="@(() => CopyAsync(context.ReferenceCode))">
+                    @context.ReferenceCode
+                </MudButton>
+            </MudTd>
+            <MudTd DataLabel="Resource">@context.ResourceName</MudTd>
+            <MudTd DataLabel="When">@context.StartUtc.ToString("g") – @context.EndUtc.ToString("t")</MudTd>
+            <MudTd DataLabel="Status">
+                <MudChip T="string" Color="@StatusColor(context.Status)" Size="Size.Small">@context.StatusDisplay</MudChip>
+            </MudTd>
+            <MudTd>
+                @if (context.Status is BookingStatus.Pending or BookingStatus.Confirmed)
+                {
+                    <MudButton Size="Size.Small" Color="Color.Error" Variant="Variant.Text" OnClick="@(() => CancelAsync(context.Id))">
+                        Cancel
+                    </MudButton>
+                }
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+}
+
+@code {
+    private List<BookingDto>? bookings;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync() => bookings = await Api.GetMyBookingsAsync() ?? [];
+
+    private async Task CancelAsync(Guid id)
+    {
+        var (booking, error) = await Api.CancelBookingAsync(id, "Cancelled by customer");
+        Snackbar.Add(booking is not null ? "Booking cancelled." : error ?? "Cancel failed.",
+            booking is not null ? Severity.Success : Severity.Error);
+        await LoadAsync();
+    }
+
+    private async Task CopyAsync(string text)
+    {
+        await JsRuntime.InvokeVoidAsync("copyToClipboard", text);
+        Snackbar.Add("Reference copied.", Severity.Info);
+    }
+
+    private static Color StatusColor(BookingStatus status) => status switch
+    {
+        BookingStatus.Pending => Color.Warning,
+        BookingStatus.Confirmed => Color.Primary,
+        BookingStatus.CheckedIn => Color.Info,
+        BookingStatus.Completed => Color.Success,
+        BookingStatus.Cancelled => Color.Default,
+        _ => Color.Default
+    };
+}
