@@ -1,55 +1,171 @@
-# Azure DevOps YAML pipeline. Mirrors .github/workflows/ci.yml (restore/build/test/docker build)
-# using Azure Pipelines syntax. Not wired to a live Azure DevOps project — included to show the
-# pipeline format; drop it into Pipelines > New pipeline > Existing YAML file on an Azure DevOps
-# project to activate it.
+# ==============================================================================================
+# Azure DevOps pipeline — reference template.
+#
+# WHAT THIS IS
+# The same stages as .github/workflows/ci.yml (restore → build → unit tests → integration tests
+# against a real SQL Server → Docker image build), written in Azure Pipelines YAML. It is kept in
+# the repo to document how this solution would be built on Azure DevOps; it is not connected to a
+# live Azure DevOps organisation.
+#
+# THIS PIPELINE DOES NOT RUN AUTOMATICALLY — `trigger: none` and `pr: none` below disable both CI
+# and PR builds. Restore the commented-out branch filters to turn it on.
+#
+# NO SECRETS ARE STORED IN THIS FILE. See "STEP 2" below for where they actually live.
+#
+# ----------------------------------------------------------------------------------------------
+# HOW TO ACTIVATE IT (three steps, all in the Azure DevOps web UI)
+#
+# STEP 1 — Create the pipeline
+#   Pipelines → New pipeline → GitHub (or Azure Repos) → pick this repository →
+#   "Existing Azure Pipelines YAML file" → select /azure-pipelines.yml.
+#
+# STEP 2 — Create the secrets (never put them in this file)
+#   Pipelines → Library → + Variable group → name it exactly: bookit-ci-secrets
+#   Add two variables and click the PADLOCK icon on each to mark them secret:
+#
+#     MSSQL_SA_PASSWORD   Password for the throwaway SQL Server test container. Must satisfy SQL
+#                         Server's policy: 8+ characters using upper case, lower case, digits and
+#                         symbols. Generate one with:  openssl rand -base64 24
+#
+#     JWT_SECRET          Signing key for this app's own JWTs. Any random string of at least 32
+#                         characters (256 bits); the API refuses to start below that length. This
+#                         app issues and validates its own tokens with HMAC-SHA256 — the value is
+#                         arbitrary and is NOT tied to any Microsoft, Azure AD or Entra ID
+#                         account. Generate one with:  openssl rand -base64 48
+#
+#   A padlocked variable is encrypted at rest, is write-only in the UI afterwards, and is masked
+#   in build logs. For a real deployment, back the group with Azure Key Vault instead
+#   ("Link secrets from an Azure key vault as variables") so rotation happens in one place.
+#
+# STEP 3 — Enable the trigger
+#   Uncomment the `trigger:` / `pr:` blocks below and commit.
+#
+# ----------------------------------------------------------------------------------------------
+# WHAT WOULD BE ADDED FOR A REAL DEPLOYMENT (deliberately not included here)
+#   - A `Deploy` stage using a `deployment:` job with an Environment, so approvals and gates apply.
+#   - A service connection (Pipelines → Service connections) for Azure Container Registry / Azure
+#     Web App — credentials live in the connection, never in YAML.
+#   - `docker push` to a registry, tagged with $(Build.BuildId), replacing the local-only build.
+#   - `dotnet ef migrations bundle` to produce a self-contained migration executable, run against
+#     the target database as a separate, approvable step rather than migrating on app startup.
+# ==============================================================================================
 
-trigger:
-  branches:
-    include:
-      - main
+# Disabled on purpose — this template never queues a build by itself.
+trigger: none
+pr: none
 
-pr:
-  branches:
-    include:
-      - main
+# To activate, replace the two lines above with:
+# trigger:
+#   branches:
+#     include: [main]
+# pr:
+#   branches:
+#     include: [main]
 
 pool:
   vmImage: "ubuntu-latest"
 
 variables:
-  buildConfiguration: "Release"
-  dotnetVersion: "10.0.x"
+  # Pulls MSSQL_SA_PASSWORD and JWT_SECRET from the Library variable group created in STEP 2.
+  # If the group does not exist, the pipeline fails immediately with a clear "group not found"
+  # error rather than running with empty credentials.
+  - group: bookit-ci-secrets
+  - name: buildConfiguration
+    value: "Release"
+  - name: dotnetVersion
+    value: "10.0.x"
+
+# Service container definition. Azure Pipelines starts this alongside the job and gives the job's
+# steps network access to it on localhost:1433.
+resources:
+  containers:
+    - container: mssql
+      image: mcr.microsoft.com/mssql/server:2025-latest
+      ports:
+        - 1433:1433
+      env:
+        ACCEPT_EULA: "Y"
+        MSSQL_SA_PASSWORD: $(MSSQL_SA_PASSWORD)
+        # Developer edition: free and full-featured, licensed for non-production use only.
+        MSSQL_PID: Developer
 
 stages:
   - stage: BuildAndTest
+    displayName: "Build and test"
     jobs:
       - job: Build
+        displayName: "Restore, build, test"
+
+        # Attaches the container defined above to this job. Integration tests reach it at
+        # localhost:1433 — a real database, so provider-specific SQL behaviour is actually tested
+        # rather than hidden behind an in-memory provider.
+        services:
+          db: mssql
+
         steps:
           - task: UseDotNet@2
             displayName: "Install .NET SDK"
             inputs:
               version: $(dotnetVersion)
 
+          # BookIt.slnx — the newer XML solution format. There is no "BookIt.sln" in this repo.
           - script: dotnet restore BookIt.slnx
             displayName: "dotnet restore"
 
+          # Directory.Build.props sets TreatWarningsAsErrors, so any new analyzer warning fails
+          # the build here rather than accumulating silently.
           - script: dotnet build BookIt.slnx --no-restore --configuration $(buildConfiguration)
             displayName: "dotnet build"
 
-          - script: dotnet test tests/BookIt.UnitTests/BookIt.UnitTests.csproj --no-build --configuration $(buildConfiguration) --logger trx
+          - script: >-
+              dotnet test tests/BookIt.UnitTests/BookIt.UnitTests.csproj
+              --no-build --configuration $(buildConfiguration)
+              --logger trx --results-directory $(Agent.TempDirectory)
             displayName: "Unit tests"
 
+          # Integration tests boot the real API host (WebApplicationFactory) against the SQL
+          # Server container. Configuration uses the double-underscore convention
+          # (Sql__Password → "Sql:Password") — the same keys the app reads from User Secrets
+          # locally and from docker-compose in a container.
+          #
+          # IMPORTANT: secret variables are NOT injected into a step's environment automatically,
+          # unlike normal variables. Each one must be mapped explicitly under `env:` as below —
+          # omitting this is the classic cause of "works locally, empty in the pipeline".
+          - script: >-
+              dotnet test tests/BookIt.IntegrationTests/BookIt.IntegrationTests.csproj
+              --no-build --configuration $(buildConfiguration)
+              --logger trx --results-directory $(Agent.TempDirectory)
+            displayName: "Integration tests"
+            env:
+              Sql__Host: localhost
+              Sql__Port: "1433"
+              Sql__Database: BookIt_CI
+              Sql__Password: $(MSSQL_SA_PASSWORD)
+              Jwt__Secret: $(JWT_SECRET)
+              Jwt__Issuer: BookIt.Api
+              Jwt__Audience: BookIt.Client
+
+          # Publishes results even when tests fail — otherwise a red build shows no detail of
+          # which test broke.
           - task: PublishTestResults@2
+            displayName: "Publish test results"
             condition: succeededOrFailed()
             inputs:
               testResultsFormat: "VSTest"
               testResultsFiles: "**/*.trx"
+              searchFolder: $(Agent.TempDirectory)
 
   - stage: DockerBuild
+    displayName: "Build container images"
     dependsOn: BuildAndTest
     jobs:
       - job: BuildImages
         steps:
+          # Build context is the repo root (not each Dockerfile's folder) because both projects
+          # reference sibling projects and the root Directory.Packages.props.
+          #
+          # Images are built and discarded — nothing is pushed, so no registry service connection
+          # is required. Adding `docker push` is where a service connection would come in.
           - script: docker build -f src/BookIt.Api/Dockerfile -t bookit-api:$(Build.BuildId) .
             displayName: "Build Api image"
 

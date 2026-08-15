@@ -1,69 +1,138 @@
+# ==============================================================================================
+# CI pipeline — restore, build, unit tests, integration tests (real SQL Server), Docker images.
+#
+# THIS WORKFLOW DOES NOT RUN AUTOMATICALLY.
+# The trigger is `workflow_dispatch` (manual button) only, so nothing runs on push or PR. It is
+# included as a working, reviewable reference pipeline rather than an always-on build. To turn it
+# into a real CI, uncomment the `push:` / `pull_request:` block below — nothing else changes.
+#
+# NO SECRETS ARE STORED IN THIS FILE.
+# The SQL Server SA password and the JWT signing key are read from GitHub Actions repository
+# secrets. Anyone using this workflow sets their own, once:
+#
+#   Repo → Settings → Secrets and variables → Actions → "New repository secret"
+#     MSSQL_SA_PASSWORD   any password meeting SQL Server's policy (8+ chars, with upper, lower,
+#                         digit and symbol) — e.g. generated via: openssl rand -base64 24
+#     JWT_SECRET          any random string of at least 32 characters (256 bits) — this app signs
+#                         its own tokens with HMAC-SHA256, so the value is arbitrary; it is not
+#                         tied to any Microsoft/Azure account. Generate: openssl rand -base64 48
+#
+# Or from the CLI:
+#   gh secret set MSSQL_SA_PASSWORD
+#   gh secret set JWT_SECRET
+#
+# These are throwaway CI credentials for an ephemeral container that is destroyed when the job
+# ends — they are never the values used for local development or for a deployed environment.
+# ==============================================================================================
+
 name: CI
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  # Manual trigger only: Actions tab → "CI" → "Run workflow".
+  workflow_dispatch:
+
+  # Uncomment to make this a real, automatic CI pipeline:
+  # push:
+  #   branches: [main]
+  # pull_request:
+  #   branches: [main]
 
 jobs:
+  # Fails fast with a readable message if the repository secrets were never set. Without this, a
+  # missing MSSQL_SA_PASSWORD makes the SQL Server service container below refuse to start, and
+  # the job dies at "Initialize containers" with an error that says nothing about secrets.
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify required secrets are configured
+        env:
+          MSSQL_SA_PASSWORD: ${{ secrets.MSSQL_SA_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+        run: |
+          missing=0
+          if [ -z "$MSSQL_SA_PASSWORD" ]; then
+            echo "::error::Secret MSSQL_SA_PASSWORD is not set (Settings → Secrets and variables → Actions)."
+            missing=1
+          fi
+          if [ ${#JWT_SECRET} -lt 32 ]; then
+            echo "::error::Secret JWT_SECRET is missing or shorter than 32 characters — the API refuses to start below that (Program.cs)."
+            missing=1
+          fi
+          exit $missing
+
   build-and-test:
     runs-on: ubuntu-latest
+    needs: preflight
 
-    # GitHub-hosted Ubuntu runners are x86_64, so the official SQL Server image runs natively
-    # here (no Apple Silicon emulation quirks) — a real database for the integration tests below.
+    # GitHub-hosted Ubuntu runners are x86_64, so the official SQL Server image runs natively here
+    # (no Apple Silicon emulation) — a real database for the integration tests, not an in-memory
+    # substitute that would hide provider-specific SQL behaviour.
     services:
       db:
         image: mcr.microsoft.com/mssql/server:2025-latest
         env:
           ACCEPT_EULA: "Y"
-          MSSQL_SA_PASSWORD: "CiPipeline123!"
+          # Read from repository secrets — GitHub masks the value in all logs.
+          MSSQL_SA_PASSWORD: ${{ secrets.MSSQL_SA_PASSWORD }}
+          # Developer edition: free, full-featured, licensed for non-production use only.
           MSSQL_PID: Developer
         ports:
           - 1433:1433
+        # The job waits for this probe to pass before running any step, so the tests never race
+        # SQL Server's (slow) first-run database initialisation.
         options: >-
-          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P CiPipeline123! -C -Q 'SELECT 1' || exit 1"
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1' || exit 1"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 10
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
 
+      # BookIt.slnx — the newer XML solution format. Not "BookIt.sln"; that file does not exist.
       - name: Restore
         run: dotnet restore BookIt.slnx
 
+      # Directory.Build.props sets TreatWarningsAsErrors, so any new analyzer warning fails here.
       - name: Build
         run: dotnet build BookIt.slnx --no-restore --configuration Release
 
       - name: Unit tests
         run: dotnet test tests/BookIt.UnitTests/BookIt.UnitTests.csproj --no-build --configuration Release --logger "console;verbosity=normal"
 
+      # Integration tests boot the real API host (WebApplicationFactory) against the SQL Server
+      # service container above. Config is passed as environment variables using the double
+      # underscore convention (Sql__Password → "Sql:Password"), the same keys the app reads from
+      # User Secrets locally and from docker-compose in a container.
       - name: Integration tests
         env:
           Sql__Host: localhost
           Sql__Port: "1433"
           Sql__Database: BookIt_CI
-          Sql__Password: "CiPipeline123!"
-          Jwt__Secret: "ci-pipeline-signing-key-not-used-in-production-0123456789"
+          Sql__Password: ${{ secrets.MSSQL_SA_PASSWORD }}
+          Jwt__Secret: ${{ secrets.JWT_SECRET }}
           Jwt__Issuer: BookIt.Api
           Jwt__Audience: BookIt.Client
         run: dotnet test tests/BookIt.IntegrationTests/BookIt.IntegrationTests.csproj --no-build --configuration Release --logger "console;verbosity=normal"
 
+  # Proves both Dockerfiles still build from a clean checkout. Images are built and thrown away —
+  # nothing is pushed to a registry, so no registry credentials are needed anywhere.
   docker-build:
     runs-on: ubuntu-latest
     needs: build-and-test
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
+      # Build context is the repo root (not the Dockerfile's folder) because both projects
+      # reference sibling projects and the root Directory.Packages.props.
       - name: Build Api image
         run: docker build -f src/BookIt.Api/Dockerfile -t bookit-api:ci .
 

@@ -1,7 +1,5 @@
 # BookIt
 
-[![CI](https://github.com/kuki404/BookIt/actions/workflows/ci.yml/badge.svg)](https://github.com/kuki404/BookIt/actions/workflows/ci.yml)
-
 A resource booking system — rooms, equipment or services, booked by time slot, with double-booking
 prevention, brute-force-hardened auth, and a Blazor UI on top of a proper Web API.
 
@@ -15,12 +13,16 @@ plus two named exceptions: **MudBlazor** (UI kit) and **Mapster** (DTO → view-
 
 ```bash
 git clone https://github.com/kuki404/BookIt.git && cd BookIt
-cp .env.example .env   # edit the two values inside — see "First-time setup" below
+cp .env.example .env
 docker compose up -d --build
 ```
 
 Open **http://localhost:5232**, click **Log in**, then **Demo Admin** or **Demo Customer** — no
 typing required, both accounts are seeded automatically on first run.
+
+Nothing to register, no cloud account, no API keys: the placeholder values in `.env.example` are
+valid as they stand, so a fresh clone runs offline. Replace them with your own before doing
+anything beyond a local try — see [Configuration and secrets](#configuration-and-secrets).
 
 ## Architecture
 
@@ -123,15 +125,50 @@ Central Package Management (`Directory.Packages.props`) pins every NuGet version
 - Docker Desktop
 - `dotnet-ef` global tool: `dotnet tool install --global dotnet-ef`
 
+## Configuration and secrets
+
+There are exactly **two** secrets in this project, and neither is committed to git:
+
+| Secret | What it is | Rules |
+|---|---|---|
+| `MSSQL_SA_PASSWORD` | Password for the SA account of your local SQL Server container | SQL Server policy: 8+ characters using upper case, lower case, digits and symbols |
+| `JWT_SECRET` | Key this API signs its own tokens with | At least 32 characters (256 bits) — the API refuses to start below that |
+
+Generate real values with:
+
+```bash
+openssl rand -base64 24   # MSSQL_SA_PASSWORD
+openssl rand -base64 48   # JWT_SECRET
+```
+
+**No cloud account is involved anywhere.** The API issues and validates its own JWTs with
+HMAC-SHA256 — `JWT_SECRET` is just a random string you invent, and auth works fully offline. There
+is nothing to register with Microsoft, Azure AD or Entra ID. (Decoded tokens show a role claim
+named `http://schemas.microsoft.com/ws/2008/06/identity/claims/role` — that URI is only .NET's
+built-in *naming convention* for claim types, not a call to any Microsoft service.)
+
+Where each value goes depends on how you run the project:
+
+| How you run it | Reads secrets from | How to set them |
+|---|---|---|
+| `docker compose up` | `.env` in the repo root | `cp .env.example .env`, then edit |
+| `dotnet run` locally | [User Secrets](https://learn.microsoft.com/aspnet/core/security/app-secrets) | `dotnet user-secrets set ...` (below) |
+| GitHub Actions | Repository secrets | `gh secret set MSSQL_SA_PASSWORD` / `gh secret set JWT_SECRET` |
+| Azure DevOps | Library variable group `bookit-ci-secrets` | Pipelines → Library, padlock each variable |
+
+`.env` is gitignored, and User Secrets live outside the repo entirely (`~/.microsoft/usersecrets/`)
+— that is what makes your database and signing key yours alone, not shared with anyone who clones
+this repository.
+
+> **Why User Secrets and not `.env` for `dotnet run`?** Docker Compose reads `.env` natively, with
+> no code. .NET has its own first-party mechanism for the same job, so reading `.env` from C#
+> would mean adding a third-party NuGet package for something the framework already does. Both
+> paths end up holding the same two values; that duplication is expected.
+
 ## First-time setup (running locally with `dotnet run`)
 
-1. Copy `.env.example` to `.env` and fill in your own values:
-   ```
-   MSSQL_SA_PASSWORD=your-password
-   JWT_SECRET=a-long-random-string-at-least-32-characters
-   ```
-   `.env` is gitignored and never committed — this is what makes the database yours alone, not
-   shared with anyone else who clones the repo.
+1. Copy `.env.example` to `.env` and put your own values in it (see the table above). The
+   placeholders in `.env.example` are valid as-is if you just want it running immediately.
 
 2. Start the database:
    ```bash
@@ -157,13 +194,8 @@ Central Package Management (`Directory.Packages.props`) pins every NuGet version
    ```
 
 Seeded logins (also available as one-click buttons on the Login page):
-**admin@bookit.local / Admin123!** and **customer@bookit.local / Customer123!**
-
-> **Why User Secrets and not `.env` for the app itself?** Docker Compose reads `.env` natively —
-> no code needed. The .NET apps read config from [User
-> Secrets](https://learn.microsoft.com/aspnet/core/security/app-secrets), Microsoft's own
-> mechanism for keeping local secrets out of source control, so no extra NuGet package is needed
-> to parse a `.env` file from .NET code. Both end up holding the same password; that's expected.
+**admin@bookit.local / Admin123!** and **customer@bookit.local / Customer123!** — demo accounts
+seeded into your own local database, deliberately weak and safe to publish for exactly that reason.
 
 ## Running fully in Docker (no local .NET needed to run it)
 
@@ -196,11 +228,33 @@ the same SQL Server container (never touches your dev data).
 
 ## CI/CD
 
-- **`.github/workflows/ci.yml`** — actually runs on this repo's GitHub Actions: restore, build,
-  unit + integration tests (against a real SQL Server service container), then builds both Docker
-  images.
-- **`azure-pipelines.yml`** — the same stages in Azure DevOps YAML syntax. Not wired to a live
-  Azure DevOps project; drop it into Pipelines → New pipeline → Existing YAML file to activate it.
+Both pipelines run the same stages — restore → build → unit tests → integration tests against a
+real SQL Server service container → build both Docker images:
+
+- **`.github/workflows/ci.yml`** — GitHub Actions.
+- **`azure-pipelines.yml`** — Azure DevOps YAML.
+
+**Neither runs automatically.** GitHub Actions is set to `workflow_dispatch` (manual button only)
+and Azure DevOps to `trigger: none`, so nothing builds on push. They are here as reviewable
+reference pipelines rather than an always-on build; each file's header comment explains, step by
+step, what to change to switch it on.
+
+**Neither file contains a password.** Both read `MSSQL_SA_PASSWORD` and `JWT_SECRET` from their
+platform's secret store (see the table in [Configuration and
+secrets](#configuration-and-secrets)) — throwaway credentials for an ephemeral container that is
+destroyed when the job ends, never the values used locally or for a deployment. The GitHub
+workflow additionally runs a `preflight` job that fails with a readable message if those secrets
+were never set, instead of dying at "Initialize containers" with an error that says nothing about
+secrets.
+
+To enable the GitHub workflow on your own fork:
+
+```bash
+gh secret set MSSQL_SA_PASSWORD
+gh secret set JWT_SECRET
+```
+
+Then uncomment the `push:` / `pull_request:` block at the top of `.github/workflows/ci.yml`.
 
 ## Notes
 
