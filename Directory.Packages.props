@@ -14,7 +14,7 @@
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.11" />
     <PackageVersion Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.11" />
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.11" />
-    <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.10" />
+    <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.11" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.11" />
     <PackageVersion Include="Microsoft.Extensions.Caching.Hybrid" Version="10.9.0" />
@@ -25,7 +25,7 @@
     <PackageVersion Include="Microsoft.Extensions.Configuration.UserSecrets" Version="10.0.11" />
     <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="10.0.11" />
     <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.11" />
-    <!-- Pinned above the version Microsoft.AspNetCore.OpenApi 10.0.10 pulls transitively (2.0.0),
+    <!-- Pinned above the version Microsoft.AspNetCore.OpenApi 10.0.11 pulls transitively (2.0.0),
          which carries a known high-severity advisory (GHSA-v5pm-xwqc-g5wc). -->
     <PackageVersion Include="Microsoft.OpenApi" Version="2.12.0" />
 

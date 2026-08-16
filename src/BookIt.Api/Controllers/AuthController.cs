@@ -23,7 +23,7 @@ public class AuthController(
     private static readonly TimeSpan RefreshTokenLifetime = TimeSpan.FromDays(30);
 
     [HttpPost("register")]
-    public async Task<ActionResult<AuthResponse>> Register(RegisterRequest request)
+    public async Task<ActionResult<AuthResponse>> Register(RegisterRequest request, CancellationToken cancellationToken)
     {
         var user = new ApplicationUser
         {
@@ -45,11 +45,11 @@ public class AuthController(
 
         await userManager.AddToRoleAsync(user, Roles.Customer);
 
-        return Ok(await IssueTokensAsync(user));
+        return Ok(await IssueTokensAsync(user, cancellationToken));
     }
 
     [HttpPost("login")]
-    public async Task<ActionResult<AuthResponse>> Login(LoginRequest request)
+    public async Task<ActionResult<AuthResponse>> Login(LoginRequest request, CancellationToken cancellationToken)
     {
         var user = await userManager.FindByEmailAsync(request.Email);
         if (user is null)
@@ -74,14 +74,14 @@ public class AuthController(
             return Unauthorized(new { error = "Invalid email or password." });
         }
 
-        return Ok(await IssueTokensAsync(user));
+        return Ok(await IssueTokensAsync(user, cancellationToken));
     }
 
     [HttpPost("refresh")]
-    public async Task<ActionResult<AuthResponse>> Refresh(RefreshRequest request)
+    public async Task<ActionResult<AuthResponse>> Refresh(RefreshRequest request, CancellationToken cancellationToken)
     {
         var tokenHash = tokenService.HashRefreshToken(request.RefreshToken);
-        var storedToken = await db.RefreshTokens.FirstOrDefaultAsync(t => t.TokenHash == tokenHash);
+        var storedToken = await db.RefreshTokens.FirstOrDefaultAsync(t => t.TokenHash == tokenHash, cancellationToken);
 
         if (storedToken is null)
         {
@@ -96,7 +96,7 @@ public class AuthController(
             // Security BCP "refresh token reuse detection").
             await db.RefreshTokens
                 .Where(t => t.UserId == storedToken.UserId && t.RevokedAtUtc == null)
-                .ExecuteUpdateAsync(setters => setters.SetProperty(t => t.RevokedAtUtc, DateTime.UtcNow));
+                .ExecuteUpdateAsync(setters => setters.SetProperty(t => t.RevokedAtUtc, DateTime.UtcNow), cancellationToken);
 
             return Unauthorized(new { error = "Refresh token has already been used. All sessions were revoked." });
         }
@@ -115,15 +115,15 @@ public class AuthController(
         // Rotate: issue a new pair, then link the old row to the new one and revoke it — captured
         // directly from IssueTokensAsync's return value instead of re-querying "the newest token
         // for this user", which would race under concurrent refresh calls.
-        var (response, newTokenEntity) = await IssueTokensWithEntityAsync(user);
+        var (response, newTokenEntity) = await IssueTokensWithEntityAsync(user, cancellationToken);
         storedToken.Revoke(newTokenEntity.Id);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(cancellationToken);
 
         return Ok(response);
     }
 
     [HttpPost("revoke")]
-    public async Task<IActionResult> Revoke(RefreshRequest request)
+    public async Task<IActionResult> Revoke(RefreshRequest request, CancellationToken cancellationToken)
     {
         var tokenHash = tokenService.HashRefreshToken(request.RefreshToken);
 
@@ -132,14 +132,16 @@ public class AuthController(
         // already revoked — no need to branch on that here.
         await db.RefreshTokens
             .Where(t => t.TokenHash == tokenHash && t.RevokedAtUtc == null)
-            .ExecuteUpdateAsync(setters => setters.SetProperty(t => t.RevokedAtUtc, DateTime.UtcNow));
+            .ExecuteUpdateAsync(setters => setters.SetProperty(t => t.RevokedAtUtc, DateTime.UtcNow), cancellationToken);
 
         return NoContent();
     }
 
-    private async Task<AuthResponse> IssueTokensAsync(ApplicationUser user) => (await IssueTokensWithEntityAsync(user)).Response;
+    private async Task<AuthResponse> IssueTokensAsync(ApplicationUser user, CancellationToken cancellationToken) =>
+        (await IssueTokensWithEntityAsync(user, cancellationToken)).Response;
 
-    private async Task<(AuthResponse Response, Domain.Entities.RefreshToken Entity)> IssueTokensWithEntityAsync(ApplicationUser user)
+    private async Task<(AuthResponse Response, Domain.Entities.RefreshToken Entity)> IssueTokensWithEntityAsync(
+        ApplicationUser user, CancellationToken cancellationToken)
     {
         var roles = (await userManager.GetRolesAsync(user)).ToList();
         var accessToken = tokenService.CreateAccessToken(new TokenSubject(user.Id, user.Email!, user.DisplayName, roles));
@@ -147,7 +149,7 @@ public class AuthController(
         var (rawRefreshToken, refreshTokenHash) = tokenService.CreateRefreshToken();
         var refreshTokenEntity = Domain.Entities.RefreshToken.Create(user.Id, refreshTokenHash, RefreshTokenLifetime);
         db.RefreshTokens.Add(refreshTokenEntity);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(cancellationToken);
 
         var response = new AuthResponse(
             accessToken.Value,

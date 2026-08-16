@@ -171,6 +171,15 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi().AllowAnonymous();
 }
 
+// HSTS tells the browser to only ever reach this host over HTTPS for the given duration, closing
+// the window where a plain-HTTP first request could be intercepted before the redirect below
+// even happens. Development-only excluded: enabling it there pins localhost to HTTPS in the
+// browser's HSTS cache, breaking plain-HTTP local debugging in a way that outlives the app run.
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+}
+
 app.UseHttpsRedirection();
 
 // Security headers on every response — belt-and-suspenders alongside HSTS; cheap and this API has
