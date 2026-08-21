@@ -14,7 +14,7 @@
     <MudTextField T="string" Label="Display name" @bind-Value="model.DisplayName" Required="true" Class="mb-3" />
     <MudTextField T="string" Label="Email" @bind-Value="model.Email" Required="true" InputType="InputType.Email" Class="mb-3" />
     <MudTextField T="string" Label="Password" @bind-Value="model.Password" Required="true" InputType="InputType.Password"
-                   HelperText="At least 8 characters" Class="mb-3" />
+                   HelperText="At least 8 characters, with an uppercase letter, a lowercase letter, and a digit." Class="mb-3" />
 
     @if (errorMessage is not null)
     {

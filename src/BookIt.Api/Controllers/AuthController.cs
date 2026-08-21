@@ -36,11 +36,17 @@ public class AuthController(
         var createResult = await userManager.CreateAsync(user, request.Password);
         if (!createResult.Succeeded)
         {
-            // Deliberately generic: distinguishing "email already registered" from "weak password"
-            // would let an attacker enumerate registered accounts. The auth-specific rate limiter
-            // (Program.cs) is the primary defense against brute-forcing this endpoint either way.
-            return Problem(statusCode: StatusCodes.Status400BadRequest, title: "Registration failed.",
-                detail: "Could not create an account with the provided details.");
+            // A rejected password is not an enumeration oracle — telling the user which rule their
+            // password failed reveals nothing about whether the email is already registered. Only
+            // collapse to the generic message when a duplicate-email error is among the failures
+            // (mixed in with, say, a password error too — the generic message wins so a duplicate
+            // check can never be inferred from response specificity).
+            var isDuplicateEmail = createResult.Errors.Any(e => e.Code is "DuplicateUserName" or "DuplicateEmail");
+            var detail = isDuplicateEmail
+                ? "Could not create an account with the provided details."
+                : string.Join(" ", createResult.Errors.Select(e => e.Description));
+
+            return Problem(statusCode: StatusCodes.Status400BadRequest, title: "Registration failed.", detail: detail);
         }
 
         await userManager.AddToRoleAsync(user, Roles.Customer);

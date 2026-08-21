@@ -144,14 +144,49 @@ public class BookItApiClient(HttpClient http, AuthSession session)
         return true;
     }
 
+    /// <summary>
+    /// The API returns three different shapes for "the request was rejected", and this used to
+    /// only understand one of them: `{ "error": "..." }` (the shape most controllers use), leaving
+    /// DataAnnotations' ValidationProblemDetails (an `errors` dictionary) and plain ProblemDetails
+    /// (`detail`/`title`, what AuthController.Register actually returns) to fall through silently
+    /// to a useless "Request failed with status 400." — which is exactly what a user seeing "your
+    /// password was rejected" with no reason saw. Checked in order: `errors` (first validation
+    /// message) -> `detail` -> `title` -> `error`.
+    /// </summary>
     private static async Task<string> ReadErrorAsync(HttpResponseMessage response)
     {
         try
         {
-            var problem = await response.Content.ReadFromJsonAsync<Dictionary<string, object>>();
-            if (problem is not null && problem.TryGetValue("error", out var error))
+            var problem = await response.Content.ReadFromJsonAsync<Dictionary<string, System.Text.Json.JsonElement>>();
+            if (problem is null)
             {
-                return error.ToString() ?? "Request failed.";
+                return $"Request failed with status {(int)response.StatusCode}.";
+            }
+
+            if (problem.TryGetValue("errors", out var errors) && errors.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                foreach (var field in errors.EnumerateObject())
+                {
+                    if (field.Value.ValueKind == System.Text.Json.JsonValueKind.Array && field.Value.GetArrayLength() > 0)
+                    {
+                        return field.Value[0].GetString() ?? "Request failed.";
+                    }
+                }
+            }
+
+            if (problem.TryGetValue("detail", out var detail) && detail.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                return detail.GetString() ?? "Request failed.";
+            }
+
+            if (problem.TryGetValue("title", out var title) && title.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                return title.GetString() ?? "Request failed.";
+            }
+
+            if (problem.TryGetValue("error", out var error) && error.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                return error.GetString() ?? "Request failed.";
             }
         }
         catch
