@@ -1,0 +1,32 @@
+<MudDialog>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="mb-1"><b>Resource:</b> @Booking.ResourceName</MudText>
+        <MudText Typo="Typo.body2" Class="mb-1"><b>Reference:</b> @Booking.ReferenceCode</MudText>
+        <MudText Typo="Typo.body2" Class="mb-1"><b>When (UTC):</b> @Booking.TimeRangeDisplay</MudText>
+        <MudText Typo="Typo.body2" Class="mb-3"><b>Status:</b> @Booking.StatusDisplay</MudText>
+
+        @if (!string.IsNullOrWhiteSpace(Booking.Notes))
+        {
+            <MudAlert Severity="Severity.Info" Class="mb-3">
+                <b>Notes:</b> @Booking.Notes
+            </MudAlert>
+        }
+
+        @if (Booking.Status == BookingStatus.Cancelled && !string.IsNullOrWhiteSpace(Booking.CancellationReason))
+        {
+            <MudAlert Severity="Severity.Warning">
+                <b>Cancellation reason:</b> @Booking.CancellationReason
+            </MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Close">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public BookingViewModel Booking { get; set; } = default!;
+
+    private void Close() => MudDialog.Close();
+}

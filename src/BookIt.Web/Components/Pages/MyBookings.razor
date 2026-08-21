@@ -3,6 +3,7 @@
 @inject BookItApiClient Api
 @inject IJSRuntime JsRuntime
 @inject ISnackbar Snackbar
+@inject IDialogService DialogService
 
 <PageTitle>My bookings – BookIt</PageTitle>
 <HeadContent>
@@ -46,6 +47,9 @@ else
                 <MudChip T="string" Color="@context.StatusColor" Size="Size.Small">@context.StatusDisplay</MudChip>
             </MudTd>
             <MudTd>
+                <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => ShowDetailsAsync(context))">
+                    Details
+                </MudButton>
                 @if (context.Status is BookingStatus.Pending or BookingStatus.Confirmed)
                 {
                     <MudButton Size="Size.Small" Color="Color.Error" Variant="Variant.Text" OnClick="@(() => CancelAsync(context.Id))">
@@ -65,6 +69,12 @@ else
     // .Adapt<T>() (Mapster) fills the API DTO into the UI view-model, computing the display-only
     // fields (chip color, formatted time range) registered in MapsterConfig.
     private async Task LoadAsync() => bookings = (await Api.GetMyBookingsAsync())?.Items.Adapt<List<BookingViewModel>>() ?? [];
+
+    private async Task ShowDetailsAsync(BookingViewModel booking)
+    {
+        var parameters = new DialogParameters<BookingDetailsDialog> { { d => d.Booking, booking } };
+        await DialogService.ShowAsync<BookingDetailsDialog>("Booking details", parameters);
+    }
 
     private async Task CancelAsync(Guid id)
     {
