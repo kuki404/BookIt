@@ -15,7 +15,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace BookIt.Infrastructure.Services;
 
-public class BookingService(BookItDbContext db, UserManager<ApplicationUser> userManager, IEmailSender emailSender) : IBookingService
+public class BookingService(BookItDbContext db, UserManager<ApplicationUser> userManager, IEmailSender emailSender, TimeProvider timeProvider) : IBookingService
 {
     // Compiled once, reused on every call — this exact shape (overlap check for a resource/time
     // range) runs on every booking attempt, including retries under contention, so it's the one
@@ -45,7 +45,7 @@ public class BookingService(BookItDbContext db, UserManager<ApplicationUser> use
         Booking booking;
         try
         {
-            booking = Booking.Create(request.ResourceId, userId, request.StartUtc, request.EndUtc, request.Notes);
+            booking = Booking.Create(request.ResourceId, userId, request.StartUtc, request.EndUtc, request.Notes, timeProvider.GetUtcNow().UtcDateTime);
         }
         catch (DomainException ex)
         {

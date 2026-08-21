@@ -31,14 +31,22 @@ public class Booking
         // EF Core materialization constructor.
     }
 
-    public static Booking Create(Guid resourceId, Guid userId, DateTime startUtc, DateTime endUtc, string? notes)
+    /// <summary>
+    /// <paramref name="nowUtc"/> is supplied by the caller (via <c>TimeProvider</c>) rather than
+    /// read here with <c>DateTime.UtcNow</c>, so the past-start check compares against exactly
+    /// the same instant a test controls. Previously this method read the clock itself and
+    /// tolerated a <c>-1 minute</c> fudge factor purely to dodge the flakiness of a
+    /// caller-computed "now" drifting past a start time by the time this method ran — with the
+    /// caller passing "now" in explicitly, that drift can't happen, so the fudge factor is gone.
+    /// </summary>
+    public static Booking Create(Guid resourceId, Guid userId, DateTime startUtc, DateTime endUtc, string? notes, DateTime nowUtc)
     {
         if (startUtc >= endUtc)
         {
             throw new DomainException("Booking start time must be before the end time.");
         }
 
-        if (startUtc < DateTime.UtcNow.AddMinutes(-1))
+        if (startUtc < nowUtc)
         {
             throw new DomainException("Booking start time cannot be in the past.");
         }
@@ -53,7 +61,7 @@ public class Booking
             EndUtc = endUtc,
             Notes = notes?.Trim(),
             Status = BookingStatus.Pending,
-            CreatedAtUtc = DateTime.UtcNow
+            CreatedAtUtc = nowUtc
         };
     }
 
@@ -98,7 +106,7 @@ public class Booking
         CancellationReason = reason?.Trim();
     }
 
-    public void MarkReminderSent() => ReminderSentAtUtc = DateTime.UtcNow;
+    public void MarkReminderSent(DateTime nowUtc) => ReminderSentAtUtc = nowUtc;
 
     private static string GenerateReferenceCode()
     {

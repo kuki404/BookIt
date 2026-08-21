@@ -18,7 +18,8 @@ public class AuthController(
     UserManager<ApplicationUser> userManager,
     SignInManager<ApplicationUser> signInManager,
     BookItDbContext db,
-    ITokenService tokenService) : ControllerBase
+    ITokenService tokenService,
+    TimeProvider timeProvider) : ControllerBase
 {
     private static readonly TimeSpan RefreshTokenLifetime = TimeSpan.FromDays(30);
 
@@ -102,12 +103,12 @@ public class AuthController(
             // Security BCP "refresh token reuse detection").
             await db.RefreshTokens
                 .Where(t => t.UserId == storedToken.UserId && t.RevokedAtUtc == null)
-                .ExecuteUpdateAsync(setters => setters.SetProperty(t => t.RevokedAtUtc, DateTime.UtcNow), cancellationToken);
+                .ExecuteUpdateAsync(setters => setters.SetProperty(t => t.RevokedAtUtc, timeProvider.GetUtcNow().UtcDateTime), cancellationToken);
 
             return Unauthorized(new { error = "Refresh token has already been used. All sessions were revoked." });
         }
 
-        if (!storedToken.IsActive)
+        if (!storedToken.IsActiveAt(timeProvider.GetUtcNow().UtcDateTime))
         {
             return Unauthorized(new { error = "Refresh token is invalid or expired." });
         }
@@ -122,7 +123,7 @@ public class AuthController(
         // directly from IssueTokensAsync's return value instead of re-querying "the newest token
         // for this user", which would race under concurrent refresh calls.
         var (response, newTokenEntity) = await IssueTokensWithEntityAsync(user, cancellationToken);
-        storedToken.Revoke(newTokenEntity.Id);
+        storedToken.Revoke(timeProvider.GetUtcNow().UtcDateTime, newTokenEntity.Id);
         await db.SaveChangesAsync(cancellationToken);
 
         return Ok(response);
@@ -138,7 +139,7 @@ public class AuthController(
         // already revoked — no need to branch on that here.
         await db.RefreshTokens
             .Where(t => t.TokenHash == tokenHash && t.RevokedAtUtc == null)
-            .ExecuteUpdateAsync(setters => setters.SetProperty(t => t.RevokedAtUtc, DateTime.UtcNow), cancellationToken);
+            .ExecuteUpdateAsync(setters => setters.SetProperty(t => t.RevokedAtUtc, timeProvider.GetUtcNow().UtcDateTime), cancellationToken);
 
         return NoContent();
     }
@@ -153,7 +154,7 @@ public class AuthController(
         var accessToken = tokenService.CreateAccessToken(new TokenSubject(user.Id, user.Email!, user.DisplayName, roles));
 
         var (rawRefreshToken, refreshTokenHash) = tokenService.CreateRefreshToken();
-        var refreshTokenEntity = Domain.Entities.RefreshToken.Create(user.Id, refreshTokenHash, RefreshTokenLifetime);
+        var refreshTokenEntity = Domain.Entities.RefreshToken.Create(user.Id, refreshTokenHash, RefreshTokenLifetime, timeProvider.GetUtcNow().UtcDateTime);
         db.RefreshTokens.Add(refreshTokenEntity);
         await db.SaveChangesAsync(cancellationToken);
 

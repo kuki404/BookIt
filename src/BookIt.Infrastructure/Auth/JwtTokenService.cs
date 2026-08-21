@@ -8,12 +8,12 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace BookIt.Infrastructure.Auth;
 
-public class JwtTokenService(IConfiguration configuration) : ITokenService
+public class JwtTokenService(IConfiguration configuration, TimeProvider timeProvider) : ITokenService
 {
     public AccessToken CreateAccessToken(TokenSubject subject)
     {
         var minutes = int.TryParse(configuration["Jwt:AccessTokenMinutes"], out var m) ? m : 15;
-        var expiresAtUtc = DateTime.UtcNow.AddMinutes(minutes);
+        var expiresAtUtc = timeProvider.GetUtcNow().UtcDateTime.AddMinutes(minutes);
 
         var claims = new List<Claim>
         {

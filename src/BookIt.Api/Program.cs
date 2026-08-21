@@ -134,6 +134,7 @@ builder.Services.AddOutputCache();
 builder.Services.AddScoped<IResourceService, ResourceService>();
 builder.Services.AddScoped<IBookingService, BookingService>();
 builder.Services.AddScoped<ITokenService, JwtTokenService>();
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
 builder.Services.AddHostedService<BookingReminderService>();
 
