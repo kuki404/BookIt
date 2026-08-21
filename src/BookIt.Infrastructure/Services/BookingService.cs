@@ -17,9 +17,12 @@ public class BookingService(BookItDbContext db) : IBookingService
     // Compiled once, reused on every call — this exact shape (overlap check for a resource/time
     // range) runs on every booking attempt, including retries under contention, so it's the one
     // query in this project worth bypassing LINQ's per-call expression-tree compilation for.
-    private static readonly Func<BookItDbContext, Guid, DateTime, DateTime, Task<bool>> CompiledHasOverlapQuery =
+    // Counts overlaps rather than just checking Any() so a Resource.Capacity > 1 (a room with
+    // multiple seats, a piece of equipment with several identical units) can hold that many
+    // concurrent bookings instead of being treated as capacity 1.
+    private static readonly Func<BookItDbContext, Guid, DateTime, DateTime, Task<int>> CompiledOverlapCountQuery =
         EF.CompileAsyncQuery((BookItDbContext ctx, Guid resourceId, DateTime startUtc, DateTime endUtc) =>
-            ctx.Bookings.Any(b =>
+            ctx.Bookings.Count(b =>
                 b.ResourceId == resourceId &&
                 b.Status != BookingStatus.Cancelled &&
                 b.StartUtc < endUtc &&
@@ -27,9 +30,11 @@ public class BookingService(BookItDbContext db) : IBookingService
 
     public async Task<Result<BookingDto>> CreateAsync(Guid userId, CreateBookingRequest request, CancellationToken cancellationToken = default)
     {
-        var resourceIsBookable = await db.Resources.AsNoTracking()
-            .AnyAsync(r => r.Id == request.ResourceId && r.IsActive, cancellationToken);
-        if (!resourceIsBookable)
+        var resource = await db.Resources.AsNoTracking()
+            .Where(r => r.Id == request.ResourceId && r.IsActive)
+            .Select(r => new { r.Capacity })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (resource is null)
         {
             return Result<BookingDto>.Failure("Resource not found or inactive.");
         }
@@ -44,7 +49,7 @@ public class BookingService(BookItDbContext db) : IBookingService
             return Result<BookingDto>.Failure(ex.Message);
         }
 
-        var added = await TryAddWithOverlapCheckAsync(booking, cancellationToken);
+        var added = await TryAddWithOverlapCheckAsync(booking, resource.Capacity, cancellationToken);
         if (!added)
         {
             return Result<BookingDto>.Failure("This resource is already booked for the requested time range.");
@@ -64,7 +69,7 @@ public class BookingService(BookItDbContext db) : IBookingService
     /// insert (a classic check-then-act race) — the loser blocks, then fails against the row the
     /// winner just committed instead of silently double-booking.
     /// </summary>
-    private async Task<bool> TryAddWithOverlapCheckAsync(Booking booking, CancellationToken cancellationToken)
+    private async Task<bool> TryAddWithOverlapCheckAsync(Booking booking, int capacity, CancellationToken cancellationToken)
     {
         // EnableRetryOnFailure() requires manual transactions to run through the execution
         // strategy, so a transient-fault retry replays the whole check-then-insert unit instead
@@ -75,8 +80,8 @@ public class BookingService(BookItDbContext db) : IBookingService
         {
             await using var transaction = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
 
-            var overlaps = await CompiledHasOverlapQuery(db, booking.ResourceId, booking.StartUtc, booking.EndUtc);
-            if (overlaps)
+            var overlapCount = await CompiledOverlapCountQuery(db, booking.ResourceId, booking.StartUtc, booking.EndUtc);
+            if (overlapCount >= capacity)
             {
                 await transaction.RollbackAsync(cancellationToken);
                 return false;

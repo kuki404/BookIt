@@ -66,8 +66,8 @@ public class AuthAndBookingsTests(BookItWebApplicationFactory factory)
         var token = await RegisterAndGetTokenAsync();
         // A dedicated resource per test — not the shared seeded one — so this test's booking can
         // never collide with another test (or a previous run's leftover data) on the same
-        // resource/time window.
-        var resourceId = await CreateDedicatedResourceAsync();
+        // resource/time window. Capacity 1: a single overlap must be enough to reject.
+        var resourceId = await CreateDedicatedResourceAsync(capacity: 1);
         var start = DateTime.UtcNow.AddDays(2);
 
         var first = await PostBookingAsync(token, resourceId, start, start.AddHours(1));
@@ -76,6 +76,27 @@ public class AuthAndBookingsTests(BookItWebApplicationFactory factory)
         var overlapping = await PostBookingAsync(token, resourceId, start.AddMinutes(30), start.AddMinutes(90));
 
         Assert.Equal(HttpStatusCode.BadRequest, overlapping.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateBooking_UpToCapacity_AllSucceedAndTheNextOneIsRejected()
+    {
+        var token = await RegisterAndGetTokenAsync();
+        // Resource.Capacity used to be validated and displayed but silently ignored by the
+        // overlap check, so a room with capacity 4 behaved exactly like capacity 1. Prove
+        // overlapping bookings up to capacity all succeed, and only the one past it is rejected.
+        var resourceId = await CreateDedicatedResourceAsync(capacity: 4);
+        var start = DateTime.UtcNow.AddDays(4);
+
+        for (var i = 0; i < 4; i++)
+        {
+            var response = await PostBookingAsync(token, resourceId, start, start.AddHours(1));
+            response.EnsureSuccessStatusCode();
+        }
+
+        var overCapacity = await PostBookingAsync(token, resourceId, start, start.AddHours(1));
+
+        Assert.Equal(HttpStatusCode.BadRequest, overCapacity.StatusCode);
     }
 
     [Fact]
@@ -111,7 +132,7 @@ public class AuthAndBookingsTests(BookItWebApplicationFactory factory)
         return resources!.Items.First().Id;
     }
 
-    private async Task<Guid> CreateDedicatedResourceAsync()
+    private async Task<Guid> CreateDedicatedResourceAsync(int capacity = 4)
     {
         var loginResponse = await client.PostAsJsonAsync("api/auth/login", new LoginRequest("admin@bookit.local", "Admin123!"));
         loginResponse.EnsureSuccessStatusCode();
@@ -119,7 +140,7 @@ public class AuthAndBookingsTests(BookItWebApplicationFactory factory)
 
         var request = new HttpRequestMessage(HttpMethod.Post, "api/resources")
         {
-            Content = JsonContent.Create(new CreateResourceRequest($"Test Room {Guid.NewGuid():N}", ResourceType.Room, 4, null))
+            Content = JsonContent.Create(new CreateResourceRequest($"Test Room {Guid.NewGuid():N}", ResourceType.Room, capacity, null))
         };
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", adminAuth!.AccessToken);
 
