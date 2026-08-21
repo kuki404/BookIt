@@ -7,12 +7,15 @@ using BookIt.Domain.Common;
 using BookIt.Domain.Entities;
 using BookIt.Domain.Enums;
 using BookIt.Domain.Exceptions;
+using BookIt.Infrastructure.Email;
+using BookIt.Infrastructure.Identity;
 using BookIt.Infrastructure.Query;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
 namespace BookIt.Infrastructure.Services;
 
-public class BookingService(BookItDbContext db) : IBookingService
+public class BookingService(BookItDbContext db, UserManager<ApplicationUser> userManager, IEmailSender emailSender) : IBookingService
 {
     // Compiled once, reused on every call — this exact shape (overlap check for a resource/time
     // range) runs on every booking attempt, including retries under contention, so it's the one
@@ -60,7 +63,27 @@ public class BookingService(BookItDbContext db) : IBookingService
             .Select(BookingProjections.ToDto)
             .FirstAsync(cancellationToken);
 
+        await SendBookingEmailAsync(
+            dto.UserId,
+            $"Booking received: {dto.ResourceName}",
+            $"Your booking {dto.ReferenceCode} for {dto.ResourceName} from {dto.StartUtc:g} to {dto.EndUtc:g} UTC has been received.",
+            cancellationToken);
+
         return Result<BookingDto>.Success(dto);
+    }
+
+    // Fire-and-log, not fire-and-forget: a missed confirmation/cancellation email isn't worth
+    // failing the booking/cancellation over (same tolerance as BookingReminderService), so a
+    // lookup miss or SMTP failure is swallowed here rather than surfaced to the caller.
+    private async Task SendBookingEmailAsync(Guid userId, string subject, string body, CancellationToken cancellationToken)
+    {
+        var user = await userManager.FindByIdAsync(userId.ToString());
+        if (user?.Email is null)
+        {
+            return;
+        }
+
+        await emailSender.SendAsync(user.Email, subject, body, cancellationToken);
     }
 
     /// <summary>
@@ -104,6 +127,18 @@ public class BookingService(BookItDbContext db) : IBookingService
         return dto is null ? Result<BookingDto>.Failure("Booking not found.") : Result<BookingDto>.Success(dto);
     }
 
+    public async Task<Result<BookingDto>> GetByReferenceCodeAsync(string referenceCode, CancellationToken cancellationToken = default)
+    {
+        var normalized = referenceCode.Trim().ToUpperInvariant();
+
+        var dto = await db.Bookings.AsNoTracking()
+            .Where(b => b.ReferenceCode == normalized)
+            .Select(BookingProjections.ToDto)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return dto is null ? Result<BookingDto>.Failure("No booking found for that reference code.") : Result<BookingDto>.Success(dto);
+    }
+
     // TagWith stamps a SQL comment on the generated query — shows up in SQL Server's plan cache /
     // profiler output, so a slow-query report can be traced straight back to this call site.
     public Task<PagedResult<BookingDto>> GetForUserAsync(Guid userId, PagedRequest paging, CancellationToken cancellationToken = default) =>
@@ -140,6 +175,51 @@ public class BookingService(BookItDbContext db) : IBookingService
         return Result<AvailabilityResponse>.Success(new AvailabilityResponse(resourceId, date, slots));
     }
 
+    private const int MaxRangeDays = 62;
+
+    // Range-capable sibling of GetAvailabilityAsync for the resource calendar view: one query for
+    // the whole window (same overlap shape as the single-day lookup and the compiled overlap
+    // check above) instead of the caller looping day-by-day over the network.
+    public async Task<Result<AvailabilityRangeResponse>> GetAvailabilityRangeAsync(Guid resourceId, DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken = default)
+    {
+        if (endDate < startDate)
+        {
+            return Result<AvailabilityRangeResponse>.Failure("End date must not be before the start date.");
+        }
+
+        if (endDate.DayNumber - startDate.DayNumber + 1 > MaxRangeDays)
+        {
+            return Result<AvailabilityRangeResponse>.Failure($"Range cannot exceed {MaxRangeDays} days.");
+        }
+
+        var resourceExists = await db.Resources.AsNoTracking().AnyAsync(r => r.Id == resourceId, cancellationToken);
+        if (!resourceExists)
+        {
+            return Result<AvailabilityRangeResponse>.Failure("Resource not found.");
+        }
+
+        var rangeStart = startDate.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+        var rangeEnd = endDate.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc).AddDays(1);
+
+        var slots = await db.Bookings.AsNoTracking()
+            .Where(b => b.ResourceId == resourceId && b.StartUtc < rangeEnd && b.EndUtc > rangeStart)
+            .Where(b => b.Status == BookingStatus.Pending || b.Status == BookingStatus.Confirmed || b.Status == BookingStatus.CheckedIn)
+            .OrderBy(b => b.StartUtc)
+            .Select(b => new BookingSlotDto(b.StartUtc, b.EndUtc, b.Status.ToDisplayText()))
+            .ToListAsync(cancellationToken);
+
+        var days = new List<AvailabilityResponse>();
+        for (var date = startDate; date <= endDate; date = date.AddDays(1))
+        {
+            var dayStart = date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+            var dayEnd = dayStart.AddDays(1);
+            var daySlots = slots.Where(s => s.StartUtc < dayEnd && s.EndUtc > dayStart).ToList();
+            days.Add(new AvailabilityResponse(resourceId, date, daySlots));
+        }
+
+        return Result<AvailabilityRangeResponse>.Success(new AvailabilityRangeResponse(resourceId, days));
+    }
+
     public Task<Result<BookingDto>> ConfirmAsync(Guid id, CancellationToken cancellationToken = default) =>
         ApplyTransitionAsync(id, b => b.Confirm(), cancellationToken);
 
@@ -149,8 +229,20 @@ public class BookingService(BookItDbContext db) : IBookingService
     public Task<Result<BookingDto>> CompleteAsync(Guid id, CancellationToken cancellationToken = default) =>
         ApplyTransitionAsync(id, b => b.Complete(), cancellationToken);
 
-    public Task<Result<BookingDto>> CancelAsync(Guid id, string? reason, CancellationToken cancellationToken = default) =>
-        ApplyTransitionAsync(id, b => b.Cancel(reason), cancellationToken);
+    public async Task<Result<BookingDto>> CancelAsync(Guid id, string? reason, CancellationToken cancellationToken = default)
+    {
+        var result = await ApplyTransitionAsync(id, b => b.Cancel(reason), cancellationToken);
+        if (result.Succeeded)
+        {
+            await SendBookingEmailAsync(
+                result.Value!.UserId,
+                $"Booking cancelled: {result.Value.ResourceName}",
+                $"Your booking {result.Value.ReferenceCode} for {result.Value.ResourceName} has been cancelled.",
+                cancellationToken);
+        }
+
+        return result;
+    }
 
     /// <summary>Loads the entity tracked (writes need change tracking) then delegates the actual state check to the domain method, so an invalid transition fails in one place regardless of which action triggered it.</summary>
     private async Task<Result<BookingDto>> ApplyTransitionAsync(Guid id, Action<Booking> transition, CancellationToken cancellationToken)

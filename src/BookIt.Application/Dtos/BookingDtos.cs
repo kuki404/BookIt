@@ -38,3 +38,5 @@ public record CancelBookingRequest([MaxLength(500)] string? Reason);
 public record BookingSlotDto(DateTime StartUtc, DateTime EndUtc, string StatusDisplay);
 
 public record AvailabilityResponse(Guid ResourceId, DateOnly Date, IReadOnlyList<BookingSlotDto> BookedSlots);
+
+public record AvailabilityRangeResponse(Guid ResourceId, IReadOnlyList<AvailabilityResponse> Days);

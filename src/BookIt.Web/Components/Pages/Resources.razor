@@ -42,6 +42,9 @@ else
             <MudTd DataLabel="Capacity">@context.Capacity</MudTd>
             <MudTd DataLabel="Description">@context.Description</MudTd>
             <MudTd>
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Class="mr-2" Href="@($"/resources/{context.Id}/availability")">
+                    Availability
+                </MudButton>
                 <AuthorizeView Context="authState">
                     <Authorized>
                         <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => BookAsync(context))">

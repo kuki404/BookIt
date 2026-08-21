@@ -1,0 +1,101 @@
+@page "/resources/{ResourceId:guid}/availability"
+@inject BookItApiClient Api
+
+<PageTitle>Availability – BookIt</PageTitle>
+<HeadContent>
+    <meta name="description" content="Week-at-a-glance availability for a bookable resource." />
+</HeadContent>
+
+<MudText Typo="Typo.h4" Class="mb-4">Availability@(resourceName is null ? "" : $" – {resourceName}")</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+        <MudButton StartIcon="@Icons.Material.Filled.ChevronLeft" OnClick="@(() => ShiftWeekAsync(-1))">Previous week</MudButton>
+        <MudText Typo="Typo.subtitle1">@weekStart.ToString("MMM d") – @weekStart.AddDays(6).ToString("MMM d, yyyy")</MudText>
+        <MudButton EndIcon="@Icons.Material.Filled.ChevronRight" OnClick="@(() => ShiftWeekAsync(1))">Next week</MudButton>
+    </MudStack>
+</MudPaper>
+
+@if (loading)
+{
+    <MudSkeleton Height="200px" />
+}
+else if (days is null)
+{
+    <MudAlert Severity="Severity.Error">@errorMessage</MudAlert>
+}
+else
+{
+    <MudGrid>
+        @foreach (var day in days)
+        {
+            <MudItem xs="12" sm="6" md="4" lg="3">
+                <MudPaper Class="pa-3" Elevation="2" Style="@($"border-top: 4px solid {(day.BookedSlots.Count == 0 ? "var(--mud-palette-success)" : "var(--mud-palette-warning)")};")">
+                    <MudText Typo="Typo.subtitle1">@day.Date.ToString("ddd, MMM d")</MudText>
+                    @if (day.BookedSlots.Count == 0)
+                    {
+                        <MudChip T="string" Color="Color.Success" Size="Size.Small" Class="mt-2">Free all day</MudChip>
+                    }
+                    else
+                    {
+                        <MudList T="string" Dense="true" Class="mt-1">
+                            @foreach (var slot in day.BookedSlots)
+                            {
+                                <MudListItem T="string" Icon="@Icons.Material.Filled.EventBusy" IconColor="Color.Warning">
+                                    @slot.StartUtc.ToLocalTime().ToString("HH:mm")–@slot.EndUtc.ToLocalTime().ToString("HH:mm") (@slot.StatusDisplay)
+                                </MudListItem>
+                            }
+                        </MudList>
+                    }
+                </MudPaper>
+            </MudItem>
+        }
+    </MudGrid>
+}
+
+@code {
+    [Parameter] public Guid ResourceId { get; set; }
+
+    private DateOnly weekStart = StartOfWeek(DateOnly.FromDateTime(DateTime.Today));
+    private List<AvailabilityResponse>? days;
+    private string? resourceName;
+    private bool loading = true;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var resources = await Api.GetResourcesAsync(includeInactive: true);
+        resourceName = resources?.Items.FirstOrDefault(r => r.Id == ResourceId)?.Name;
+        await LoadWeekAsync();
+    }
+
+    private async Task ShiftWeekAsync(int deltaWeeks)
+    {
+        weekStart = weekStart.AddDays(7 * deltaWeeks);
+        await LoadWeekAsync();
+    }
+
+    private async Task LoadWeekAsync()
+    {
+        loading = true;
+        try
+        {
+            var response = await Api.GetAvailabilityRangeAsync(ResourceId, weekStart, weekStart.AddDays(6));
+            days = response?.Days.ToList();
+            if (days is null)
+            {
+                errorMessage = "Could not load availability for this resource.";
+            }
+        }
+        finally
+        {
+            loading = false;
+        }
+    }
+
+    private static DateOnly StartOfWeek(DateOnly date)
+    {
+        var diff = (7 + (int)date.DayOfWeek - (int)DayOfWeek.Monday) % 7;
+        return date.AddDays(-diff);
+    }
+}

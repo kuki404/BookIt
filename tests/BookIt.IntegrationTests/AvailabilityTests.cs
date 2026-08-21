@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using BookIt.Application.Dtos;
@@ -48,6 +49,49 @@ public class AvailabilityTests(BookItWebApplicationFactory factory)
         var slot = Assert.Single(availability!.BookedSlots);
         Assert.Equal(start, slot.StartUtc);
         Assert.Equal(end, slot.EndUtc);
+    }
+
+    [Fact]
+    public async Task GetAvailabilityRange_AcrossMultipleDays_GroupsSlotsByDay()
+    {
+        var token = await RegisterAndGetTokenAsync();
+        var resourceId = await CreateDedicatedResourceAsync();
+
+        var day1Start = DateTime.UtcNow.AddDays(20).Date.AddHours(9);
+        var day2Start = DateTime.UtcNow.AddDays(21).Date.AddHours(14);
+
+        (await PostBookingAsync(token, resourceId, day1Start, day1Start.AddHours(1))).EnsureSuccessStatusCode();
+        (await PostBookingAsync(token, resourceId, day2Start, day2Start.AddHours(1))).EnsureSuccessStatusCode();
+
+        var startDate = DateOnly.FromDateTime(day1Start);
+        var endDate = DateOnly.FromDateTime(day1Start.AddDays(6));
+
+        var response = await client.GetFromJsonAsync<AvailabilityRangeResponse>(
+            $"api/availability/range?resourceId={resourceId}&startDate={startDate:yyyy-MM-dd}&endDate={endDate:yyyy-MM-dd}");
+
+        Assert.NotNull(response);
+        Assert.Equal(7, response!.Days.Count);
+
+        var day1 = response.Days.Single(d => d.Date == startDate);
+        var day2 = response.Days.Single(d => d.Date == DateOnly.FromDateTime(day2Start));
+        var freeDay = response.Days.Single(d => d.Date == startDate.AddDays(3));
+
+        Assert.Single(day1.BookedSlots);
+        Assert.Single(day2.BookedSlots);
+        Assert.Empty(freeDay.BookedSlots);
+    }
+
+    [Fact]
+    public async Task GetAvailabilityRange_EndBeforeStart_ReturnsBadRequest()
+    {
+        var resourceId = await CreateDedicatedResourceAsync();
+        var startDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(5));
+        var endDate = startDate.AddDays(-1);
+
+        var response = await client.GetAsync(
+            $"api/availability/range?resourceId={resourceId}&startDate={startDate:yyyy-MM-dd}&endDate={endDate:yyyy-MM-dd}");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     private async Task<string> RegisterAndGetTokenAsync()

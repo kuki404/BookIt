@@ -1,0 +1,91 @@
+@page "/find-booking"
+@inject BookItApiClient Api
+
+<PageTitle>Find my booking – BookIt</PageTitle>
+<HeadContent>
+    <meta name="description" content="Look up a booking by its reference code, no account needed." />
+    <link rel="canonical" href="/find-booking" />
+</HeadContent>
+
+<MudText Typo="Typo.h4" Class="mb-2">Find my booking</MudText>
+<MudText Typo="Typo.body2" Class="mb-4">
+    Enter the reference code from your confirmation email — no need to log in.
+</MudText>
+
+<MudPaper Class="pa-4 mb-4" Elevation="1" MaxWidth="480px">
+    <MudStack Row="true" AlignItems="AlignItems.Start">
+        <MudTextField T="string" @bind-Value="code" Label="Reference code" Placeholder="BK-XXXXXX"
+                      Immediate="true" OnKeyUp="@OnKeyUp" Class="flex-grow-1" />
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SearchAsync" Disabled="searching">
+            Find
+        </MudButton>
+    </MudStack>
+</MudPaper>
+
+@if (searching)
+{
+    <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+}
+else if (errorMessage is not null)
+{
+    <MudAlert Severity="Severity.Warning">@errorMessage</MudAlert>
+}
+else if (booking is not null)
+{
+    <MudPaper Class="pa-4" Elevation="1" MaxWidth="480px">
+        <MudText Typo="Typo.h6">@booking.ResourceName</MudText>
+        <MudText Typo="Typo.body2">Reference: <b>@booking.ReferenceCode</b></MudText>
+        <MudText Typo="Typo.body2">Status: @booking.StatusDisplay</MudText>
+        <MudText Typo="Typo.body2">@booking.StartUtc.ToLocalTime().ToString("g") – @booking.EndUtc.ToLocalTime().ToString("g")</MudText>
+        @if (!string.IsNullOrWhiteSpace(booking.Notes))
+        {
+            <MudText Typo="Typo.body2" Class="mt-2">Notes: @booking.Notes</MudText>
+        }
+        @if (!string.IsNullOrWhiteSpace(booking.CancellationReason))
+        {
+            <MudText Typo="Typo.body2" Class="mt-2">Cancellation reason: @booking.CancellationReason</MudText>
+        }
+    </MudPaper>
+}
+
+@code {
+    private string code = string.Empty;
+    private bool searching;
+    private string? errorMessage;
+    private BookingDto? booking;
+
+    private async Task OnKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await SearchAsync();
+        }
+    }
+
+    private async Task SearchAsync()
+    {
+        booking = null;
+        errorMessage = null;
+
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            errorMessage = "Enter a reference code.";
+            return;
+        }
+
+        searching = true;
+        try
+        {
+            var (found, error) = await Api.GetBookingByReferenceCodeAsync(code.Trim());
+            booking = found;
+            if (booking is null)
+            {
+                errorMessage = error ?? "No booking found for that reference code.";
+            }
+        }
+        finally
+        {
+            searching = false;
+        }
+    }
+}

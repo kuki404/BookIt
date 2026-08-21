@@ -31,6 +31,19 @@ public class BookingsController(IBookingService bookingService, IAuthorizationSe
     public async Task<ActionResult<PagedResult<BookingDto>>> GetAll([FromQuery] PagedRequest paging) =>
         Ok(await bookingService.GetAllAsync(paging));
 
+    // Anonymous by design: the reference code (see the unique index comment on
+    // Booking.ReferenceCode) exists so a guest without an account — or a logged-in user checking
+    // from another device — can look up a booking without being authenticated as its owner. The
+    // code itself (6 random chars from a 33-symbol alphabet, no leading enumerable sequence) is
+    // the access control here, the same trust model as an airline confirmation code.
+    [HttpGet("by-code/{code}")]
+    [AllowAnonymous]
+    public async Task<ActionResult<BookingDto>> GetByReferenceCode(string code)
+    {
+        var result = await bookingService.GetByReferenceCodeAsync(code);
+        return result.Succeeded ? Ok(result.Value) : NotFound(new { error = result.Error });
+    }
+
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<BookingDto>> GetById(Guid id)
     {

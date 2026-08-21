@@ -51,6 +51,9 @@ public class BookItApiClient(HttpClient http, AuthSession session)
     public Task<AvailabilityResponse?> GetAvailabilityAsync(Guid resourceId, DateOnly date) =>
         SendAsync<AvailabilityResponse>(HttpMethod.Get, $"api/availability?resourceId={resourceId}&date={date:yyyy-MM-dd}");
 
+    public Task<AvailabilityRangeResponse?> GetAvailabilityRangeAsync(Guid resourceId, DateOnly startDate, DateOnly endDate) =>
+        SendAsync<AvailabilityRangeResponse>(HttpMethod.Get, $"api/availability/range?resourceId={resourceId}&startDate={startDate:yyyy-MM-dd}&endDate={endDate:yyyy-MM-dd}");
+
     public async Task<(BookingDto? Booking, string? Error)> CreateBookingAsync(CreateBookingRequest request)
     {
         var response = await SendRawAsync(HttpMethod.Post, "api/bookings", request);
@@ -76,6 +79,17 @@ public class BookItApiClient(HttpClient http, AuthSession session)
 
     public Task<BookingDto?> CompleteBookingAsync(Guid id) =>
         SendAsync<BookingDto>(HttpMethod.Post, $"api/bookings/{id}/complete");
+
+    public async Task<(BookingDto? Booking, string? Error)> GetBookingByReferenceCodeAsync(string code)
+    {
+        var response = await SendRawAsync(HttpMethod.Get, $"api/bookings/by-code/{Uri.EscapeDataString(code)}");
+        if (!response.IsSuccessStatusCode)
+        {
+            return (null, await ReadErrorAsync(response));
+        }
+
+        return (await response.Content.ReadFromJsonAsync<BookingDto>(), null);
+    }
 
     public async Task<(BookingDto? Booking, string? Error)> CancelBookingAsync(Guid id, string? reason)
     {
