@@ -14,10 +14,34 @@
         {
             <MudText Typo="Typo.body2" Class="mb-3">@Resource.Name — capacity @Resource.Capacity</MudText>
 
-            <MudDatePicker Label="Date" @bind-Date="date" Class="mb-3" MinDate="DateTime.Today" />
+            <MudDatePicker Label="Date" @bind-Date="date" @bind-Date:after="LoadAvailabilityAsync" Class="mb-3" MinDate="DateTime.Today" />
             <MudTimePicker Label="Start time" @bind-Time="startTime" Class="mb-3" />
             <MudNumericField T="int" Label="Duration (minutes)" @bind-Value="durationMinutes" Min="15" Max="480" Step="15" Class="mb-3" />
             <MudTextField T="string" Label="Notes (optional)" @bind-Value="notes" Lines="2" Class="mb-3" />
+
+            @if (loadingAvailability)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mb-3" />
+            }
+            else if (bookedSlots is not null)
+            {
+                @if (bookedSlots.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Success" Dense="true" Class="mb-3">No existing bookings on this date — fully open.</MudAlert>
+                }
+                else
+                {
+                    <MudText Typo="Typo.body2" Class="mb-1">Already booked on this date:</MudText>
+                    <MudList T="string" Dense="true" Class="mb-3">
+                        @foreach (var slot in bookedSlots)
+                        {
+                            <MudListItem T="string" Icon="@Icons.Material.Filled.EventBusy">
+                                @slot.StartUtc.ToLocalTime().ToString("HH:mm")–@slot.EndUtc.ToLocalTime().ToString("HH:mm") (@slot.StatusDisplay)
+                            </MudListItem>
+                        }
+                    </MudList>
+                }
+            }
 
             @if (errorMessage is not null)
             {
@@ -49,6 +73,30 @@
     private string? errorMessage;
     private string? confirmedReference;
     private bool submitting;
+    private List<BookingSlotDto>? bookedSlots;
+    private bool loadingAvailability;
+
+    protected override async Task OnInitializedAsync() => await LoadAvailabilityAsync();
+
+    private async Task LoadAvailabilityAsync()
+    {
+        if (date is null)
+        {
+            bookedSlots = null;
+            return;
+        }
+
+        loadingAvailability = true;
+        try
+        {
+            var response = await Api.GetAvailabilityAsync(Resource.Id, DateOnly.FromDateTime(date.Value));
+            bookedSlots = response?.BookedSlots.ToList() ?? [];
+        }
+        finally
+        {
+            loadingAvailability = false;
+        }
+    }
 
     private async Task SubmitAsync()
     {
