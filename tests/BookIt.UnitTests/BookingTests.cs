@@ -1,6 +1,7 @@
 using BookIt.Domain.Entities;
 using BookIt.Domain.Enums;
 using BookIt.Domain.Exceptions;
+using Shouldly;
 
 namespace BookIt.UnitTests;
 
@@ -15,7 +16,7 @@ public class BookingTests
         var start = DateTime.UtcNow.AddHours(2);
         var end = start.AddHours(-1);
 
-        Assert.Throws<DomainException>(() => Booking.Create(ResourceId, UserId, start, end, null));
+        Should.Throw<DomainException>(() => Booking.Create(ResourceId, UserId, start, end, null));
     }
 
     [Fact]
@@ -24,7 +25,7 @@ public class BookingTests
         var start = DateTime.UtcNow.AddHours(-1);
         var end = start.AddHours(1);
 
-        Assert.Throws<DomainException>(() => Booking.Create(ResourceId, UserId, start, end, null));
+        Should.Throw<DomainException>(() => Booking.Create(ResourceId, UserId, start, end, null));
     }
 
     [Fact]
@@ -33,8 +34,8 @@ public class BookingTests
         var start = DateTime.UtcNow.AddHours(1);
         var booking = Booking.Create(ResourceId, UserId, start, start.AddHours(1), "Team sync");
 
-        Assert.Equal(BookingStatus.Pending, booking.Status);
-        Assert.StartsWith("BK-", booking.ReferenceCode);
+        booking.Status.ShouldBe(BookingStatus.Pending);
+        booking.ReferenceCode.ShouldStartWith("BK-");
     }
 
     [Fact]
@@ -43,13 +44,13 @@ public class BookingTests
         var booking = CreatePendingBooking();
 
         booking.Confirm();
-        Assert.Equal(BookingStatus.Confirmed, booking.Status);
+        booking.Status.ShouldBe(BookingStatus.Confirmed);
 
         booking.CheckIn();
-        Assert.Equal(BookingStatus.CheckedIn, booking.Status);
+        booking.Status.ShouldBe(BookingStatus.CheckedIn);
 
         booking.Complete();
-        Assert.Equal(BookingStatus.Completed, booking.Status);
+        booking.Status.ShouldBe(BookingStatus.Completed);
     }
 
     [Fact]
@@ -57,7 +58,7 @@ public class BookingTests
     {
         var booking = CreatePendingBooking();
 
-        Assert.Throws<DomainException>(booking.CheckIn);
+        Should.Throw<DomainException>(booking.CheckIn);
     }
 
     [Fact]
@@ -66,7 +67,7 @@ public class BookingTests
         var booking = CreatePendingBooking();
         booking.Confirm();
 
-        Assert.Throws<DomainException>(booking.Complete);
+        Should.Throw<DomainException>(booking.Complete);
     }
 
     [Fact]
@@ -76,8 +77,8 @@ public class BookingTests
 
         booking.Cancel("changed my mind");
 
-        Assert.Equal(BookingStatus.Cancelled, booking.Status);
-        Assert.Equal("changed my mind", booking.CancellationReason);
+        booking.Status.ShouldBe(BookingStatus.Cancelled);
+        booking.CancellationReason.ShouldBe("changed my mind");
     }
 
     [Fact]
@@ -88,7 +89,7 @@ public class BookingTests
         booking.CheckIn();
         booking.Complete();
 
-        Assert.Throws<DomainException>(() => booking.Cancel(null));
+        Should.Throw<DomainException>(() => booking.Cancel(null));
     }
 
     [Fact]
@@ -97,7 +98,7 @@ public class BookingTests
         var booking = CreatePendingBooking();
         booking.Cancel(null);
 
-        Assert.Throws<DomainException>(() => booking.Cancel(null));
+        Should.Throw<DomainException>(() => booking.Cancel(null));
     }
 
     private static Booking CreatePendingBooking()

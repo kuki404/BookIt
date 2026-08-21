@@ -1,5 +1,6 @@
 using BookIt.Domain.Entities;
 using BookIt.Domain.Enums;
+using Shouldly;
 
 namespace BookIt.UnitTests;
 
@@ -8,13 +9,13 @@ public class ResourceTests
     [Fact]
     public void Create_WithBlankName_Throws()
     {
-        Assert.Throws<ArgumentException>(() => Resource.Create("  ", ResourceType.Room, 1));
+        Should.Throw<ArgumentException>(() => Resource.Create("  ", ResourceType.Room, 1));
     }
 
     [Fact]
     public void Create_WithZeroCapacity_Throws()
     {
-        Assert.Throws<ArgumentOutOfRangeException>(() => Resource.Create("Room A", ResourceType.Room, 0));
+        Should.Throw<ArgumentOutOfRangeException>(() => Resource.Create("Room A", ResourceType.Room, 0));
     }
 
     [Fact]
@@ -22,7 +23,7 @@ public class ResourceTests
     {
         var resource = Resource.Create("Room A", ResourceType.Room, 4);
 
-        Assert.True(resource.IsActive);
+        resource.IsActive.ShouldBeTrue();
     }
 
     [Fact]
@@ -32,6 +33,6 @@ public class ResourceTests
 
         resource.Deactivate();
 
-        Assert.False(resource.IsActive);
+        resource.IsActive.ShouldBeFalse();
     }
 }
