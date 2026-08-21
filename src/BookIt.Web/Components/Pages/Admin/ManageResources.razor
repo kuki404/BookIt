@@ -2,6 +2,7 @@
 @attribute [Authorize(Roles = "Admin")]
 @inject BookItApiClient Api
 @inject ISnackbar Snackbar
+@inject IDialogService DialogService
 
 <PageTitle>Manage resources – BookIt</PageTitle>
 <HeadContent>
@@ -59,6 +60,9 @@ else
                 </MudChip>
             </MudTd>
             <MudTd>
+                <MudButton Size="Size.Small" Color="Color.Primary" Variant="Variant.Text" OnClick="@(() => EditAsync(context))">
+                    Edit
+                </MudButton>
                 @if (context.IsActive)
                 {
                     <MudButton Size="Size.Small" Color="Color.Error" Variant="Variant.Text" OnClick="@(() => DeactivateAsync(context.Id))">
@@ -102,6 +106,19 @@ else
         else
         {
             Snackbar.Add("Failed to add resource.", Severity.Error);
+        }
+    }
+
+    private async Task EditAsync(ResourceViewModel resource)
+    {
+        var parameters = new DialogParameters<EditResourceDialog> { { d => d.Resource, resource } };
+        var dialog = await DialogService.ShowAsync<EditResourceDialog>($"Edit {resource.Name}", parameters);
+        var result = await dialog.Result;
+
+        if (result is { Canceled: false })
+        {
+            Snackbar.Add("Resource updated.", Severity.Success);
+            await LoadAsync();
         }
     }
 
